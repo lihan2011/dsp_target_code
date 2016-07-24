@@ -94,18 +94,18 @@ const MCSubtargetInfo &STI) const
 /// target operand. If the machine operand requires relocation,
 /// record the relocation and return zero.
 unsigned DSPMCCodeEmitter::
-getBranch16TargetOpValue(const MCInst &MI, unsigned OpNo,
+getBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
 SmallVectorImpl<MCFixup> &Fixups,
 const MCSubtargetInfo &STI) const {
 	const MCOperand &MO = MI.getOperand(OpNo);
 
 	// If the destination is an immediate, we have nothing to do.
 	if (MO.isImm()) return MO.getImm();
-	assert(MO.isExpr() && "getBranch16TargetOpValue expects only expressions");
+	assert(MO.isExpr() && "getBranchTargetOpValue expects only expressions");
 
 	const MCExpr *Expr = MO.getExpr();
 	Fixups.push_back(MCFixup::Create(0, Expr,
-		MCFixupKind(DSP::fixup_DSP_PC16)));
+		MCFixupKind(DSP::fixup_DSP_PC26)));
 
 	return 0;
 }
@@ -143,12 +143,12 @@ const MCSubtargetInfo &STI) const {
 	assert(MO.isExpr() && "getJumpTargetOpValue expects only expressions");
 
 	const MCExpr *Expr = MO.getExpr();
-	std::cout << "kind is" << Expr->getKind();
-	//if (Opcode == DSP::CALL || Opcode == DSP::Jmp)
+	std::cout << "kind is" << Expr->getKind() << std::endl;
+	//std::cout << "kind is" << Expr->getKind() << std::endl;
 
-	if (Opcode == DSP::Jmp||Opcode == DSP::CALL)
+	if (Opcode == DSP::CALL||Opcode==DSP::Jmp)
 		Fixups.push_back(MCFixup::Create(0, Expr,
-		MCFixupKind(DSP::fixup_DSP_PC24)));
+		MCFixupKind(DSP::fixup_Mips_PC26_S2)));
 	else
 		llvm_unreachable("unexpect opcode in getJumpAbsoluteTargetOpValue()");
 
@@ -160,9 +160,14 @@ unsigned DSPMCCodeEmitter::
 getExprOpValue(const MCExpr *Expr, SmallVectorImpl<MCFixup> &Fixups,
 const MCSubtargetInfo &STI) const {
 	MCExpr::ExprKind Kind = Expr->getKind();
+	if (Kind == MCExpr::Constant) {
+		return cast<MCConstantExpr>(Expr)->getValue();
+	}
+
 	if (Kind == MCExpr::Binary) {
-		Expr = static_cast<const MCBinaryExpr*>(Expr)->getLHS();
-		Kind = Expr->getKind();
+		unsigned Res = getExprOpValue(cast<MCBinaryExpr>(Expr)->getLHS(), Fixups, STI);
+		Res += getExprOpValue(cast<MCBinaryExpr>(Expr)->getRHS(), Fixups, STI);
+		return Res;
 	}
 	assert(Kind == MCExpr::SymbolRef);
 	// All of the information is in the fixup.
@@ -211,6 +216,7 @@ unsigned DSPMCCodeEmitter::
 getMachineOpValue(const MCInst &MI, const MCOperand &MO,
 SmallVectorImpl<MCFixup> &Fixups,
 const MCSubtargetInfo &STI) const {
+
 	if (MO.isReg()) {
 		unsigned Reg = MO.getReg();
 		unsigned RegNo = getDSPRegisterNumbering(Reg);

@@ -56,8 +56,8 @@ DSPRegisterInfo::DSPRegisterInfo(const DSPSubtarget &STI):DSPGenRegisterInfo(DSP
 //===----------------------------------------------------------------------===//
 /// DSP Callee Saved Registers
 // In DSPCallConv.td,
-// def CSR_O32 : CalleeSavedRegs<(add LR, FP,
-// (sequence "S%u", 2, 0))>;
+// def CSR_O32 : CalleeSavedRegs<(add LR, FP,V0,V1,(sequence "A%u",3,0),
+// (sequence "S%u", 7, 0))>;
 // llc create CSR_O32_SaveList and CSR_O32_RegMask from above defined.
 const uint16_t *DSPRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
 	return CSR_O32_SaveList;

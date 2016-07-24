@@ -29,7 +29,7 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-
+#include <iostream>
 using namespace llvm;
 
 #define DEBUG_TYPE "delay-slot-filler"
@@ -70,6 +70,14 @@ static bool hasUnoccupiedSlot(const MachineInstr *MI) {
   return MI->hasDelaySlot() && !MI->isBundledWithSucc();
 }
 
+static bool isCall(const MachineInstr *MI){
+	return MI->isCall();
+}
+
+static bool isReturn(const MachineInstr *MI){
+	return MI->isReturn();
+}
+
 /// runOnMachineBasicBlock - Fill in delay slots for the given basic block.
 /// We assume there is only one delay slot per delayed instruction.
 bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
@@ -81,10 +89,16 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 
     ++FilledSlots;
     Changed = true;
-
+	std::cout << I->getOpcode() << "fill" << std::endl;
     // Bundle the NOP to the instruction with the delay slot.
-    const DSPInstrInfo *TII =
-      static_cast<const DSPInstrInfo*>(TM.getInstrInfo());
+    const DSPInstrInfo *TII = static_cast<const DSPInstrInfo*>(TM.getInstrInfo());
+	if (isCall(I) || isReturn(I)){
+		for (int i = 0; i < 2; i++)
+		{
+			BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+			MIBundleBuilder(MBB, I);	
+		}
+	}
     BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
     MIBundleBuilder(MBB, I, std::next(I, 2));
   }

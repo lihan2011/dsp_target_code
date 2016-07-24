@@ -202,3 +202,4 @@ def VPR4Out :RegisterClass<"DSP",[v4i32],128,(add CPU128Regs)>;
 def VPR8Out :RegisterClass<"DSP",[v8i16],128,(add CPU128Regs)>;
 def VPR16Out :RegisterClass<"DSP",[v16i8],128,(add CPU128Regs)>;
 
+def Special_Zero:RegisterClass<"DSP",[i32],32,(add ZERO)>;

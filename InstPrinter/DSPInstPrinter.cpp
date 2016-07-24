@@ -51,7 +51,7 @@ void DSPInstPrinter::printInst(const MCInst *MI, raw_ostream &O, StringRef Annot
 
 void DSPInstPrinter::printInst(const DSPMCInst *MI, raw_ostream &O, StringRef Annot){
 	//std::cout << "In DSPInstPrinter.cpp function printInst" << std::endl;
-	std::cout << "MI->isPacketStart" << MI->isPacketStart()<<std::endl;
+	//std::cout << "MI->isPacketStart" << MI->isPacketStart()<<std::endl;
 	
 	const char startPacket = '{',
 		endPacket = '}';

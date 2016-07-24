@@ -53,6 +53,7 @@ MCOperand DSPMCInstLower::LowerOperand(const MachineOperand &MO, unsigned offset
 
 	MachineOperandType MOTy = MO.getType();
 	//std::cout << MOTy << std::endl;
+	//std::cout << offset << std::endl;
 	switch (MOTy)
 	{
 	default:llvm_unreachable("unknown operand type");

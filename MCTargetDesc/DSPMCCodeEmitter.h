@@ -59,7 +59,7 @@ namespace llvm {
 		// getBranch16TargetOpValue - Return binary encoding of the branch
 		// target operand, such as BEQ, BNE. If the machine operand
 		// requires relocation, record the relocation and return zero.
-		unsigned getBranch16TargetOpValue(const MCInst &MI, unsigned OpNo,
+		unsigned getBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
 			SmallVectorImpl<MCFixup> &Fixups,
 			const MCSubtargetInfo &STI) const;
 		// getBranch24TargetOpValue - Return binary encoding of the branch

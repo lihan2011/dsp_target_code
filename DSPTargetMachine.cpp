@@ -101,6 +101,7 @@ bool DSPPassConfig::addPreEmitPass() {
 	addPass(createDSPDelJmpPass(TM));
 	addPass(createDSPDelaySlotFillerPass(TM));
 	addPass(createDSPPacketizer());
+	
 	return true;
 }
 

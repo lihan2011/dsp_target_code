@@ -27,7 +27,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetOptions.h"
-
+#include <iostream>
 
 using namespace llvm;
 
@@ -58,6 +58,18 @@ void DSPSEFrameLowering::emitPrologue(MachineFunction &MF) const {
 	const MCRegisterInfo *MRI = MMI.getContext().getRegisterInfo();
 	MachineLocation DstML, SrcML;
 	// Adjust stack.
+
+	//DSP doesn't support the minus address, inital sp with 0x000fffff in main block.
+	uint64_t Data_Address_Low = 0x0000;
+	uint64_t Data_Address_High = 0x0010;
+	std::cout << MBB.getFullName() << std::endl;
+	if (MBB.getFullName() == "_main:entry"){
+		BuildMI(MBB, MBBI,dl, TII.get(DSP::MovIGL), SP).addReg(SP).addImm(Data_Address_Low);
+		BuildMI(MBB, MBBI, dl, TII.get(DSP::MovIGH), SP).addReg(SP).addImm(Data_Address_High);
+		BuildMI(MBB, MBBI, dl, TII.get(DSP::MovIGH), DSP::LR).addReg(DSP::LR).addImm(0x0017);
+		BuildMI(MBB, MBBI, dl, TII.get(DSP::MovIGL), DSP::LR).addReg(DSP::LR).addImm(0xfff0);
+	}
+		
 	TII.adjustStackPtr(DSPFI, SP, -StackSize, MBB, MBBI);
 	// emit ".cfi_def_cfa_offset StackSize"
 	unsigned CFIIndex = MMI.addFrameInst(MCCFIInstruction::createDefCfaOffset(nullptr, -StackSize));

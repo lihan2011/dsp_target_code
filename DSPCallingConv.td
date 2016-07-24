@@ -21,8 +21,8 @@ class CCIfSubtarget<string F, CCAction A>
 
 def RetCC_DSPCommon : CallingConv<[
 
-CCIfType<[i32], CCAssignToReg<[V0, V1, A0, A1]>>,
-CCIfType<[v16i8,v8i16,v4i32],CCAssignToReg<[VR0]>>,
+CCIfType<[i32], CCAssignToReg<[V0, V1]>>,
+CCIfType<[v16i8,v8i16,v4i32],CCAssignToReg<[VR0]>>, //extend in the future
 
 CCIfType<[i8,i16],CCPromoteToType<i32>>,
 
@@ -45,4 +45,4 @@ def RetCC_DSP : CallingConv<[
 	CCDelegateTo<RetCC_DSPCommon>
 ]>;
 
-def CSR_O32 : CalleeSavedRegs<(add V0, V1, LR, FP, (sequence "A%u", 3, 0), (sequence "S%u", 7, 0))>;
+def CSR_O32 : CalleeSavedRegs<(add  LR, FP, (sequence "A%u", 3, 0), (sequence "S%u", 7, 0))>;

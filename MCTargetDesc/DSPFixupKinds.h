@@ -29,10 +29,12 @@ namespace llvm {
 			fixup_DSP_GOT_HI16,
 			// resulting in - R_DSP_GOT_LO16
 			fixup_DSP_GOT_LO16,
+
 			// PC relative branch fixup resulting in - R_CPU0_PC16.
 			// cpu0 PC16, e.g. beq
 			fixup_DSP_PC16,
 
+			fixup_DSP_PC21,
 			
 
 			// resulting in - R_CPU0_CALL16.
@@ -41,9 +43,12 @@ namespace llvm {
 			//using in Mips linker
 			fixup_Mips_PC21_S2,
 
+			fixup_Mips_PC26_S2,
+
 			// PC relative branch fixup resulting in - R_CPU0_PC24.
 			// cpu0 PC24, e.g. jeq, jmp
 			fixup_DSP_PC24,
+			fixup_DSP_PC26,
 			// Marker
 			LastTargetFixupKind,
 			NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind

@@ -44,6 +44,9 @@ namespace llvm {
 		switch (Kind) {
 		default:
 			llvm_unreachable("invalid fixup kind!");
+		case FK_Data_1:
+			Type = ELF::R_MIPS_26;
+			break;
 		case FK_Data_4:
 			Type = ELF::R_DSP_32;
 			break;
@@ -76,13 +79,18 @@ namespace llvm {
 			Type = ELF::R_CPU0_CALL16;
 			break;
 		case DSP::fixup_DSP_PC16:
-			Type = ELF::R_CPU0_PC16;
+			Type = ELF::R_DSP_PC16;
+			break;
+		case DSP::fixup_DSP_PC21:
+			Type = ELF::R_DSP_PC21;
 			break;
 		case DSP::fixup_DSP_PC24:
 			Type = ELF::R_DSP_PC24;
 			break;
 		case DSP::fixup_Mips_PC21_S2:
-			Type = ELF::R_MIPS_PC32;
+			Type = ELF::R_MIPS_PC21_S2;
+		case DSP::fixup_Mips_PC26_S2:
+			Type = ELF::R_MIPS_PC26_S2;
 			break;
 		}
 		return Type;

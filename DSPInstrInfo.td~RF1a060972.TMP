@@ -103,7 +103,7 @@ let EncoderMethod = "getMemEncoding";
 }
 
 def brtarget : Operand<OtherVT>{
-let EncoderMethod = "getBranchTargetOpValue";
+let EncoderMethod = "getJumpTargetOpValue";
 let OperandType = "OPERAND_PCREL";
 }
 
@@ -204,7 +204,7 @@ let rt = 0;
 
 class shift_rotate_reg<bits<3> typeop,bits <3> op,bits<8> inner_op, bits<4> isRotate, string instr_asm,
 SDNode OpNode, RegisterClass RC>:
-F_3Reg_001<typeop,op,inner_op, (outs GPROut:$ra), (ins RC:$rb, RC:$rc),
+R3<typeop,op,inner_op, (outs GPROut:$ra), (ins RC:$rb, RC:$rc),
 !strconcat(instr_asm, "\t$ra, $rb, $rc"),
 [(set GPROut:$ra, (OpNode RC:$rb, RC:$rc))], ALU32_S_SLOT01> {
 }
@@ -355,16 +355,16 @@ let hasExtraSrcRegAllocReq = 1;
 
 //Unconditional branch 
 class UncondBranch<bits<3> typeop,bits<3> op, bits<5> inner_op, string instr_asm>:
-F_Special_imm21<typeop,op,inner_op, (outs), (ins brtarget:$imm21),
-!strconcat(instr_asm, "\t$imm21"), [(br bb:$imm21)], ControlFlow_SLOT0> {
+F_Special_imm21<typeop,op,inner_op, (outs), (ins brtarget:$addr),
+!strconcat(instr_asm, "\t$addr"), [(br bb:$addr)], ControlFlow_SLOT0> {
 let isBranch = 1;
 let isTerminator = 1;
 let isBarrier = 1;
 let hasDelaySlot = 1;
 }
 class CBranch<bits<3> typeop, bits<3> op, bits<5> inner_op, string instr_asm>:
-F_Special_imm21<typeop,op,inner_op, (outs), (ins CPURegs:$rt, brtarget:$imm21),
-!strconcat(instr_asm, "\t$rt,$imm21"), [(brcond CPURegs:$rt, bb:$imm21)], ControlFlow_SLOT0> {
+F_Special_imm21<typeop,op,inner_op, (outs), (ins CPURegs:$rt, brtarget:$addr),
+!strconcat(instr_asm, "\t$addr"), [(brcond CPURegs:$rt, brtarget:$addr)], ControlFlow_SLOT0> {
 let isBranch = 1;
 let isTerminator = 1;
 let isBarrier = 1;
@@ -391,10 +391,9 @@ let isCommutable = 1;
 
 
 class SetCC_R<bits<3> typeop,bits<3> op, bits<8> inner_op, string instr_asm, PatFrag cond_op , RegisterClass RC>
-:F_3Reg_001<typeop,op,inner_op,(outs GPROut:$ra), (ins RC:$rb, RC:$rc),
-!strconcat(instr_asm, "\t $rb, $rc"),
-[(set GPROut:$ra, (cond_op RC:$rb, RC:$rc))],ALU32_S_SLOT01>{
-let Inst{25-20} = 0b000000;
+:F_3Reg_001<typeop,op,inner_op,(outs GPROut:$ra), (ins RC:$rb, RC:$rt),
+!strconcat(instr_asm, "\t $rb, $rt"),
+[(set GPROut:$ra, (cond_op RC:$rb, RC:$rt))],ALU32_S_SLOT01>{
 let isCommutable = 1;
 }
 
@@ -470,9 +469,8 @@ let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
 def RetLR : DSPPseudo<(outs), (ins), "", [(DSPRet)]>;
 let isReturn=1 in
 def Ret : RetBase<GPROut>;
-def Jmp : UncondBranch<0,6,0b000001,"jmp">;
-//def JNC : CBranch<4,0,0b01001, "jnc">;
-def JC : CBranch<4,0,0b00101, "jc">;
+def Jmp : UncondBranch<0,6,0b000000,"jmp">;
+def JNC : CBranch<0,0,0b01001, "jnc">;
 
 //***************************************************************************************************//
 
@@ -561,16 +559,17 @@ def :Pat<(i32(DSPWrapper tconstpool:$dst)),(MovGR ZERO, tconstpool:$dst)>;
 //def :Pat<(set GPROut:$ra, addr:$addr) ,(ADDiu SP, addr:$addr)>;
 
 // brcond for cmp instruction
-//multiclass BrcondPatsCmp<RegisterClass RC, Instruction JNEOp, 
-//Instruction CMPOp, Register ZEROReg> {
-//def : Pat<(brcond (i32 (setne RC:$lhs, RC:$rhs)), bb:$dst),
-//          (JNEOp (CMPOp RC:$lhs, RC:$rhs), bb:$dst)>;
-//def : Pat<(brcond (i32 (setune RC:$lhs, RC:$rhs)), bb:$dst),
-//          (JNEOp (CMPOp RC:$lhs, RC:$rhs), bb:$dst)>;
+multiclass BrcondPatsCmp<RegisterClass RC, Instruction JNEOp, 
+Instruction CMPOp, Register ZEROReg> {
+
+def : Pat<(brcond (i32 (setne RC:$lhs, RC:$rhs)), bb:$dst),
+          (JNEOp (CMPOp RC:$lhs, RC:$rhs), bb:$dst)>;
+def : Pat<(brcond (i32 (setune RC:$lhs, RC:$rhs)), bb:$dst),
+          (JNEOp (CMPOp RC:$lhs, RC:$rhs), bb:$dst)>;
 //def : Pat<(brcond RC:$cond, bb:$dst),
-//         (JNEOp  bb:$dst, RC:$cond,)>;
-//}
-//defm : BrcondPatsCmp<CPURegs, JNC, EQ, ZERO>;
+ //         (JNEOp  RC:$cond, bb:$dst)>;
+}
+defm : BrcondPatsCmp<CPURegs, JNC, EQ, ZERO>;
 
 def : Pat<(DSPJmpLink (i32 tglobaladdr:$dst)),
           (CALL tglobaladdr:$dst)>;

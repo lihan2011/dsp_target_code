@@ -216,7 +216,7 @@ namespace llvm {
 				return 24;
 			case DSP::T9:
 				return 25;
-			case DSP::LR:
+			case DSP::RA:
 				return 26;
 			case DSP::SW:
 				return 27;
@@ -226,7 +226,7 @@ namespace llvm {
 				return 29;
 			case DSP::SP:
 				return 30;
-			case DSP::RA:
+			case DSP::LR:
 				return 31;
 			case DSP::HI:
 				return 32;
