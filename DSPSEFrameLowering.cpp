@@ -62,7 +62,7 @@ void DSPSEFrameLowering::emitPrologue(MachineFunction &MF) const {
 	//DSP doesn't support the minus address, inital sp with 0x000fffff in main block.
 	uint64_t Data_Address_Low = 0x0000;
 	uint64_t Data_Address_High = 0x0010;
-	std::cout << MBB.getFullName() << std::endl;
+	//std::cout << MBB.getFullName() << std::endl;
 	if (MBB.getFullName() == "_main:entry"){
 		BuildMI(MBB, MBBI,dl, TII.get(DSP::MovIGL), SP).addReg(SP).addImm(Data_Address_Low);
 		BuildMI(MBB, MBBI, dl, TII.get(DSP::MovIGH), SP).addReg(SP).addImm(Data_Address_High);

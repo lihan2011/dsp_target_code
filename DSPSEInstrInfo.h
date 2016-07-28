@@ -49,6 +49,12 @@ namespace llvm {
 		unsigned loadImmediate(int64_t Imm, MachineBasicBlock &MBB,
 			MachineBasicBlock::iterator II, DebugLoc DL,
 			unsigned *NewImm) const;
+
+		//?
+		void copyPhysReg(MachineBasicBlock &MBB,
+			MachineBasicBlock::iterator MI, DebugLoc DL,
+			unsigned DestReg, unsigned SrcReg,
+			bool KillSrc) const override;
 	private:
 		void ExpandRetLR(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
 			unsigned Opc) const;

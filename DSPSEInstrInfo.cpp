@@ -143,6 +143,14 @@ unsigned *NewImm) const {
 	return ATReg;
 }
 
+
+void DSPSEInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
+	MachineBasicBlock::iterator MI, DebugLoc DL,
+	unsigned DestReg, unsigned SrcReg,
+	bool KillSrc) const {
+	return;
+}
+
 void DSPSEInstrInfo::ExpandRetLR(MachineBasicBlock &MBB,
 	MachineBasicBlock::iterator I,
 	unsigned Opc) const {

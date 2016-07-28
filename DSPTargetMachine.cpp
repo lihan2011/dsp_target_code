@@ -99,6 +99,7 @@ bool DSPPassConfig::addPreRegAlloc() {
 bool DSPPassConfig::addPreEmitPass() {
 	DSPTargetMachine &TM = getDSPTargetMachine();
 	addPass(createDSPDelJmpPass(TM));
+
 	addPass(createDSPDelaySlotFillerPass(TM));
 	addPass(createDSPPacketizer());
 	

@@ -57,46 +57,6 @@ let isPseudo = 1;
 
 
 
-//no register
-
-/*=======================================================
-typecode|opcode|imm|inner_op<5>
-=======================================================*/
-class R0<bits<3> typecode, bits<3> opcode,bits<5>inner_op,dag outs, dag ins, string asmstr, list<dag> pattern, InstrItinClass itin>
-   : InstDSP<outs, ins, asmstr, pattern, itin> {
-
- 
-   bits<21> imm;
-   let Inst{31-29} = typecode;   // top 3 is typecode 
-   let Inst{28-26} = opcode; 
-   let Inst{25-5}=imm;
-   let Inst{4-0}=inner_op;
-  }
-
-
-
-
-
-
-//one register
-
-
-/*====================================================
-typecode|opcode|rd|imm|inner_op<4>
-====================================================*/
-
-class R1< bits<3> typecode, bits<3> opcode,bits<4> inner_op, dag outs, dag ins, string asmstr, list<dag> pattern, InstrItinClass itin>
-  :InstDSP<outs, ins, asmstr, pattern, itin>{
-  bits<6> ra;
-  bits<16> imm16;
-
-  let Inst{31-29} = typecode;
-  let Inst{28-26} = opcode;
-  let Inst{25-20} = ra;
-  let Inst{19-4} = imm16;
-  let Inst{3-0} = inner_op;
-  }
-
 
 
 //two registers

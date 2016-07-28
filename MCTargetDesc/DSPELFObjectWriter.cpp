@@ -17,7 +17,7 @@
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <list>
-
+#include <iostream>
 namespace llvm {
 
 	namespace {
@@ -41,11 +41,15 @@ namespace llvm {
 		// determine the type of the relocation
 		unsigned Type = (unsigned)ELF::R_DSP_NONE;
 		unsigned Kind = (unsigned)Fixup.getKind();
+		std::cout << "roc" << " " << Kind << std::endl;
 		switch (Kind) {
 		default:
 			llvm_unreachable("invalid fixup kind!");
 		case FK_Data_1:
-			Type = ELF::R_MIPS_26;
+			Type = ELF::R_DSP_32;
+			break;
+		case FK_Data_2:
+			Type = ELF::R_DSP_32;
 			break;
 		case FK_Data_4:
 			Type = ELF::R_DSP_32;
@@ -78,7 +82,7 @@ namespace llvm {
 		case DSP::fixup_DSP_CALL:
 			Type = ELF::R_CPU0_CALL16;
 			break;
-		case DSP::fixup_DSP_PC16:
+		/*case DSP::fixup_DSP_PC16:
 			Type = ELF::R_DSP_PC16;
 			break;
 		case DSP::fixup_DSP_PC21:
@@ -86,9 +90,13 @@ namespace llvm {
 			break;
 		case DSP::fixup_DSP_PC24:
 			Type = ELF::R_DSP_PC24;
+			break;*/
+		case DSP::fixup_DSP_PC26:
+			Type = ELF::R_DSP_PC26;
 			break;
 		case DSP::fixup_Mips_PC21_S2:
 			Type = ELF::R_MIPS_PC21_S2;
+			break;
 		case DSP::fixup_Mips_PC26_S2:
 			Type = ELF::R_MIPS_PC26_S2;
 			break;

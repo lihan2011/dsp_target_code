@@ -89,18 +89,15 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 
     ++FilledSlots;
     Changed = true;
-	std::cout << I->getOpcode() << "fill" << std::endl;
     // Bundle the NOP to the instruction with the delay slot.
     const DSPInstrInfo *TII = static_cast<const DSPInstrInfo*>(TM.getInstrInfo());
-	if (isCall(I) || isReturn(I)){
-		for (int i = 0; i < 2; i++)
-		{
-			BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
-			MIBundleBuilder(MBB, I);	
-		}
+	for (int i = 0; i < 2; i++)
+	{
+		BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
 	}
-    BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
-    MIBundleBuilder(MBB, I, std::next(I, 2));
+	MIBundleBuilder(MBB, I, std::next(I, 2));
+	BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+
   }
 
   return Changed;

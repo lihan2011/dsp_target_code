@@ -224,17 +224,7 @@ F_2Reg_imm11<typeop,op,inner_op, (outs GPROut:$ra), (ins RC:$rb, Od:$imm11),
 let isReMaterializable = 1;
 }
 
-//Arithmetic and logical instructions with 2 reg
-class ArithLogicR2i5<bits<3> typeop, bits<3> op, bits<5> inner_op,string instr_asm, PatFrag OpNode,
-InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
-R2i5<typeop,op,inner_op, (outs GPROut:$ra), (ins RC:$rb, RC:$rc),
-!strconcat(instr_asm, "\t$ra, $rb, $rc"),
-[(set GPROut:$ra, (OpNode RC:$rb, RC:$rc))], itin> 
-{
-let imm = 0b11111111;
-//let isCommutable = isComm; // e.g. add rb rc = add rc rb
-let isReMaterializable = 1;
-}
+
 
 // Arithmetic and logical instructions with 3 register operands.
 class ArithLogicR<bits<3> typeop, bits<3> op, bits<8> inner_op,string instr_asm, SDNode OpNode,
@@ -333,13 +323,13 @@ let Inst{19-4} = imm16;
 
 
 class MovBase<bits<3> typeop,bits<3> op ,bits<10> inner_op , string instr_asm,RegisterClass RC,RegisterClass RD,InstrItinClass itin>:
-R2i10<typeop, op,inner_op, (outs), (ins RC:$ra,RD:$rs,uimm16:$imm),
-!strconcat(instr_asm, "\t$ra,$rs,$imm"),[],itin>{
+F_2Reg_imm4<typeop, op,inner_op, (outs), (ins RC:$ra,RD:$rb,uimm16:$imm),
+!strconcat(instr_asm, "\t$ra,$rb,$imm"),[],itin>{
 }
 
-class RMovBase<bits<3> typeop,bits<3> op ,bits<10> inner_op, string instr_asm,RegisterClass RC,RegisterClass RD,InstrItinClass itin>:
-R2i10<typeop, op,inner_op, (outs), (ins RC:$ra,RD:$rs),
-!strconcat(instr_asm, "\t$ra,$rs"),[],itin>{
+class RMovBase<bits<3> typeop,bits<3> op ,bits<8> inner_op, string instr_asm,RegisterClass RC,RegisterClass RD,InstrItinClass itin>:
+F_2Reg_2<typeop, op,inner_op, (outs), (ins RC:$ra,RD:$rb),
+!strconcat(instr_asm, "\t$ra,$rb"),[],itin>{
 }
 
 
@@ -364,7 +354,7 @@ let hasDelaySlot = 1;
 }
 class CBranch<bits<3> typeop, bits<3> op, bits<5> inner_op, string instr_asm>:
 F_Special_imm21<typeop,op,inner_op, (outs), (ins CPURegs:$rt, brtarget:$imm21),
-!strconcat(instr_asm, "\t$rt,$imm21"), [(brcond CPURegs:$rt, bb:$imm21)], ControlFlow_SLOT0> {
+!strconcat(instr_asm, "\t $imm21"), [(brcond CPURegs:$rt, bb:$imm21)], ControlFlow_SLOT0> {
 let isBranch = 1;
 let isTerminator = 1;
 let isBarrier = 1;
@@ -470,7 +460,7 @@ let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
 def RetLR : DSPPseudo<(outs), (ins), "", [(DSPRet)]>;
 let isReturn=1 in
 def Ret : RetBase<GPROut>;
-def Jmp : UncondBranch<0,6,0b000001,"jmp">;
+def Jmp : UncondBranch<4,0,0b000001,"jmp">;
 //def JNC : CBranch<4,0,0b01001, "jnc">;
 def JC : CBranch<4,0,0b00101, "jc">;
 
@@ -484,10 +474,10 @@ def CALLR : JumpLinkReg<0x4, 0, 0b111, "callr", GPROut>;
 def MovVR : DSPPseudo<(outs VPR4Out:$ra), (ins GPROut:$imm16,GPROut:$imm2,GPROut:$imm3,GPROut:$imm4), "", [(set VPR4Out:$ra,(DSPV4 GPROut:$imm16,GPROut:$imm2,GPROut:$imm3,GPROut:$imm4))]>;
 def MovGR : DSPPseudo<(outs GPROut:$ra), (ins CPURegs:$rs,simm16:$in), "", [(set GPROut:$ra, (DSPMAX CPURegs:$rs, immSExt16:$in)) ]>;
 def LEA   : DSPPseudo<(outs GPROut:$ra), (ins mem:$addr),"",[(set GPROut:$ra, addr:$addr)]>;
-def MovG2V40 : MovBase<0,3,0b00101,"movg2v40",VPR4Out,GPROut,ALU32_V_SLOT01>;
+def MovG2V40 : MovBase<4,6,0b0000100111,"movg2v40",VPR4Out,GPROut,ALU32_V_SLOT01>;
 def MovIGH : SMovBase<4,5,0b0001,"movigh",GPROut,Data_Transmission_2_SLOT0123>;
 def MovIGL : SMovBase<4,5,0b0101,"movigl",GPROut,Data_Transmission_2_SLOT0123>;
-def VMovG2V40 : RMovBase<0,5,0b10110,"vmovrg2v40",VPR4Out,GPROut,ALU32_V_SLOT01>;
+def VMovG2V40 : RMovBase<4,4,0b10100101,"vmovrg2v40",VPR4Out,GPROut,ALU32_V_SLOT01>;
 //***************************************************************************************************//
 
 

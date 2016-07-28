@@ -244,6 +244,14 @@ namespace {
 					RC = RI->getMinimalPhysRegClass(DepReg);
 				}
 
+				if ((SUI->getInstr()->getOpcode() == DSP::RetLR) || (SUJ->getInstr()->getOpcode() == DSP::RetLR) ||
+					(SUI->getInstr()->getOpcode() == DSP::Jmp) || (SUJ->getInstr()->getOpcode() == DSP::Jmp) ||
+					(SUI->getInstr()->getOpcode() == DSP::JC) || (SUJ->getInstr()->getOpcode() == DSP::JC)
+					){
+					FoundSequentialDependence = true;
+					break;
+				}
+
 				if ((SUJ->getInstr()->getOpcode()) == DSP::MovIGL &&
 					(SUI->getInstr()->getOpcode()) == DSP::MovIGH){
 					unsigned DepReg = SUJ->Succs[i].getReg();
@@ -521,8 +529,10 @@ namespace {
 			else {
 				MachineBasicBlock::iterator MII = MI;
 				++MII;
-				if (MII->getOpcode() == DSP::Ret || MII->getOpcode() == DSP::RetLR)
+				if (MII->getOpcode() == DSP::Ret || MII->getOpcode() == DSP::RetLR||MII->getOpcode()==DSP::NOP){
 					endPacket(MBB, MI);
+				}
+					
 				else 
 					judgeSlots(MBB, MI);
 				ResourceTracker->reserveResources(MI);

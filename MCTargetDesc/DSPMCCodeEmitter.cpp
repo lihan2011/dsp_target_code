@@ -146,7 +146,7 @@ const MCSubtargetInfo &STI) const {
 	std::cout << "kind is" << Expr->getKind() << std::endl;
 	//std::cout << "kind is" << Expr->getKind() << std::endl;
 
-	if (Opcode == DSP::CALL||Opcode==DSP::Jmp)
+	if (Opcode == DSP::CALL)
 		Fixups.push_back(MCFixup::Create(0, Expr,
 		MCFixupKind(DSP::fixup_Mips_PC26_S2)));
 	else
@@ -164,11 +164,11 @@ const MCSubtargetInfo &STI) const {
 		return cast<MCConstantExpr>(Expr)->getValue();
 	}
 
-	if (Kind == MCExpr::Binary) {
+	/*if (Kind == MCExpr::Binary) {
 		unsigned Res = getExprOpValue(cast<MCBinaryExpr>(Expr)->getLHS(), Fixups, STI);
 		Res += getExprOpValue(cast<MCBinaryExpr>(Expr)->getRHS(), Fixups, STI);
 		return Res;
-	}
+	}*/
 	assert(Kind == MCExpr::SymbolRef);
 	// All of the information is in the fixup.
 	std::cout << "Kind" << Kind << std::endl;

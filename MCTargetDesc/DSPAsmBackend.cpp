@@ -46,7 +46,7 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
 		// Get the higher 16-bits. Also add 1 if bit 15 is 1.
 		Value = ((Value + 0x8000) >> 16) & 0xffff;
 		break;
-	case DSP::fixup_DSP_PC16:
+	/*case DSP::fixup_DSP_PC16:
 		// So far we are only using this type for branches.
 		// For branches we start 1 instruction after the branch
 		// so the displacement will be one instruction size less.
@@ -63,17 +63,20 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
 		Value = (int64_t)Value / 4;
 		if (!isIntN(24,Value)&&Ctx)
 			Ctx->FatalError(Fixup.getLoc(), "out of range pc 24");
+		break;
 	case DSP::fixup_DSP_PC21:
 		Value -= 4;
 		Value = (int64_t)Value / 4;
 		if (!isIntN(21, Value) && Ctx)
 			Ctx->FatalError(Fixup.getLoc(), "out of range pc 21");
+		break;*/
 	case DSP::fixup_DSP_PC26:
 		//for jmp jnc
 		Value -= 4;
 		Value = (int64_t)Value / 4;
 		if (isIntN(26, Value) && Ctx)
 			Ctx->FatalError(Fixup.getLoc(), "out of range pc 26");
+		break;
 	}
 	
 	return Value;
@@ -118,9 +121,9 @@ void DSPAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 
 	uint64_t Mask = ((uint64_t)(-1) >> (64 - getFixupKindInfo(Kind).TargetSize));
 	Value = Value << 5;
-	std::cout << CurVal << std::endl;
-	std::cout << Value << std::endl;
-	std::cout << "mask" << Mask << std::endl;
+	//std::cout << CurVal << std::endl;
+	//std::cout << Value << std::endl;
+	//std::cout << "mask" << Mask << std::endl;
 	CurVal |= Value & Mask;
 	std::cout << CurVal << std::endl;
 	// Write out the fixed up bytes back to the code/data bits.
@@ -144,12 +147,16 @@ getFixupKindInfo(MCFixupKind Kind) const {
 		{ "fixup_DSP_GOT_Local", 0, 16, 0 },
 		{ "fixup_DSP_GOT_HI16", 0, 16, 0 },
 		{ "fixup_DSP_GOT_LO16", 0, 16, 0 }, 
-		{ "fixup_DSP_PC16", 0, 16, MCFixupKindInfo::FKF_IsPCRel },
-		{ "fixup_DSP_PC21", 0, 21, MCFixupKindInfo::FKF_IsPCRel },
+		//{ "fixup_DSP_PC16", 0, 16, MCFixupKindInfo::FKF_IsPCRel },
+		//{ "fixup_DSP_PC21", 0, 21, MCFixupKindInfo::FKF_IsPCRel },
 		{ "fixup_DSP_CALL",0,16, 0 },
+
+		//add this  not appear in relocation table?
 		{ "fixup_DSP_PC21_S2", 0, 21, MCFixupKindInfo::FKF_IsPCRel },
-		{ "fixup_DSP_PC26_S2", 0, 26, MCFixupKindInfo::FKF_IsPCRel },
-		{ "fixup_DSP_PC24", 0, 24, MCFixupKindInfo::FKF_IsPCRel },
+		{"fixup_DSP_PC26_S2", 0, 26, 0 },
+
+
+		//{ "fixup_DSP_PC24", 0, 24, MCFixupKindInfo::FKF_IsPCRel },
 		{ "fixup_DSP_PC26", 0, 26, MCFixupKindInfo::FKF_IsPCRel },
 	};
 	if (Kind < FirstTargetFixupKind)
