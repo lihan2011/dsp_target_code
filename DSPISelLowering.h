@@ -59,6 +59,7 @@ namespace llvm {
 			RET_FLAG,
 
 			//
+			MovGR,
 			MOVIGH,
 			MOVIGL,
 			GPRel,
@@ -66,7 +67,10 @@ namespace llvm {
 			Wrapper,
 			Hi,
 			Lo,
-
+			InsertVE8,
+			InsertVE16,
+			ExtractVE8,
+			ExtractVE16
 
 		};
 	}
@@ -245,6 +249,8 @@ namespace llvm {
 		SDValue getTargetNode(JumpTableSDNode *N, EVT Ty, SelectionDAG &DAG,
 			unsigned Flag) const;
 
+		SDValue getTargetNode(ConstantPoolSDNode *N, EVT Ty, SelectionDAG &DAG,
+			unsigned Flag) const;
 		DSPCC::SpecialCallingConvType getSpecialCallingConv(SDValue Callee) const;
 
 		// Lower Operand helpers
@@ -280,7 +286,7 @@ namespace llvm {
 		SDValue LowerShiftRightParts(SDValue Op, SelectionDAG& DAG,
 			bool IsSRA) const;
 
-
+		SDValue LowerInsertVectorElt(SDValue Op, SelectionDAG &DAG) const;
 		/// isEligibleForTailCallOptimization - Check whether the call is eligible
 		/// for tail call optimization.
 		/*virtual bool

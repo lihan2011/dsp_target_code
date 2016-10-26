@@ -41,7 +41,7 @@ namespace llvm {
 		// determine the type of the relocation
 		unsigned Type = (unsigned)ELF::R_DSP_NONE;
 		unsigned Kind = (unsigned)Fixup.getKind();
-		std::cout << "roc" << " " << Kind << std::endl;
+		//std::cout << "roc" << " " << Kind << std::endl;
 		switch (Kind) {
 		default:
 			llvm_unreachable("invalid fixup kind!");

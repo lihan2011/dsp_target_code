@@ -48,10 +48,13 @@ void DSPSEInstrInfo::storeRegToStack(MachineBasicBlock &MBB, MachineBasicBlock::
 unsigned SrcReg, bool isKill, int FI,
 const TargetRegisterClass *RC, const TargetRegisterInfo *TRI,
 int64_t Offset) const {
+	std::cout << "store reg" << std::endl;
 	DebugLoc DL;
 	if (I != MBB.end()) DL = I->getDebugLoc();
 	MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOStore);
 	unsigned Opc = 0;
+	if (DSP::CPU128RegsRegClass.hasSubClassEq(RC))
+		std::cout << "vector type!!!!!!!!!!" << std::endl;
 	Opc = DSP::ST;
 	assert(Opc && "Register class not handled!");
 	BuildMI(MBB, I, DL, get(Opc)).addReg(SrcReg, getKillRegState(isKill))
@@ -148,6 +151,14 @@ void DSPSEInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
 	MachineBasicBlock::iterator MI, DebugLoc DL,
 	unsigned DestReg, unsigned SrcReg,
 	bool KillSrc) const {
+	unsigned Opc = DSP::MovG2G;
+    MachineInstrBuilder MIB = BuildMI(MBB, MI, DL, get(Opc));
+	std::cout <<"copy phy reg" << std::endl;
+	if (DestReg)
+		MIB.addReg(DestReg, RegState::Define);
+
+	if (SrcReg)
+		MIB.addReg(SrcReg, getKillRegState(KillSrc));
 	return;
 }
 
@@ -171,7 +182,7 @@ void DSPSEInstrInfo::ExpandMovVR(MachineBasicBlock &MBB,
 			flag = true;
 		else flag = false;
 	}
-	std::cout <<"flag is"<< flag << std::endl;
+	//std::cout <<"flag is"<< flag << std::endl;
 	
 	//unsigned num = I->getNumOperands();
 	//std::cout << num << std::endl;
@@ -185,7 +196,7 @@ void DSPSEInstrInfo::ExpandMovVR(MachineBasicBlock &MBB,
 	{
 		for (int i = 0; i < 4; i++){
 			SrcReg = I->getOperand(i + 1).getReg();
-			std::cout << "srcreg" << SrcReg << std::endl;
+			//std::cout << "srcreg" << SrcReg << std::endl;
 			BuildMI(MBB, I, I->getDebugLoc(), get(Opc)).addReg(DesReg).addReg(SrcReg).addImm(i);
 		}
 	}

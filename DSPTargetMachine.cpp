@@ -102,7 +102,7 @@ bool DSPPassConfig::addPreEmitPass() {
 
 	addPass(createDSPDelaySlotFillerPass(TM));
 	addPass(createDSPPacketizer());
-	
+	addPass(createDSPVLIWBundlerDrive(TM));
 	return true;
 }
 

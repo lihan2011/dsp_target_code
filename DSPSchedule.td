@@ -63,7 +63,7 @@ def SLOT1       : FuncUnit;
 def SLOT2       : FuncUnit;
 def SLOT3       : FuncUnit;
 
-def SLOT_ENDLOOP: FuncUnit;
+//def SLOT_ENDLOOP: FuncUnit;
 
 def PSEUDO      : InstrItinClass;
 def NOP_SLOT0123 :InstrItinClass;
@@ -83,7 +83,7 @@ def ST_Ins_SLOT23 :InstrItinClass;
 //===----------------------------------------------------------------------===//
 // http://llvm.org/docs/doxygen/html/structllvm_1_1InstrStage.html
 
-def DSPGenericItineraries :ProcessorItineraries<[SLOT0, SLOT1, SLOT2, SLOT3, SLOT_ENDLOOP],[],[
+def DSPGenericItineraries :ProcessorItineraries<[SLOT0, SLOT1, SLOT2, SLOT3],[],[
 	  InstrItinData<NOP_SLOT0123      , [InstrStage<1, [SLOT0,SLOT1,SLOT2,SLOT3]>]>,
 	  InstrItinData<ALU32_S_SLOT0      , [InstrStage<1, [SLOT0]>]>,
 	  InstrItinData<ALU32_S_SLOT01      , [InstrStage<1, [SLOT0,SLOT1]>]>,

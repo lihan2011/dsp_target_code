@@ -43,19 +43,7 @@ bool DSPSEDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
 void DSPSEDAGToDAGISel::processFunctionAfterISel(MachineFunction &MF) {
 }
 
-SDNode* DSPSEDAGToDAGISel::selectADD_FI(SDNode *Node){
-	SDLoc DL(Node);
-	SDValue AddNode = Node->getOperand(2);
-	FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(AddNode.getOperand(0));
-	SDValue Chain = Node->getOperand(0);
-	EVT ValTy = Node->getValueType(0);
-	
-	SDValue StackPtr = CurDAG->getCopyFromReg(Chain, DL, DSP::SP, ValTy);
-	SDValue PtrBase = CurDAG->getNode(DSP::ADDu, DL, ValTy, AddNode.getOperand(1), StackPtr);
-	std::cout << "begin select node to" << std::endl;
-	CurDAG->getNode(ISD::STORE, DL, ValTy, PtrBase, CurDAG->getTargetFrameIndex(FIN->getIndex(),ValTy));
-	return Node;
-}
+
 std::pair<bool, SDNode*> DSPSEDAGToDAGISel::selectNode(SDNode *Node) {
 	unsigned Opcode = Node->getOpcode();
 	SDLoc DL(Node);

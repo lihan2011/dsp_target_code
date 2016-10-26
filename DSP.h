@@ -44,6 +44,7 @@ FunctionPass *createDSPISelDag(DSPTargetMachine &TM);
 #ifdef ENABLE_GPRESTORE
 FunctionPass *createDSPEmitGPRestorePass(DSPTargetMachine &TM);
 #endif
+FunctionPass *createDSPVLIWBundlerDrive(TargetMachine &TM);
 FunctionPass *createDSPPacketizer();
 FunctionPass *createDSPDelaySlotFillerPass(DSPTargetMachine &TM);
 FunctionPass *createDSPDelJmpPass(DSPTargetMachine &TM);

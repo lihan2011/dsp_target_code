@@ -10,12 +10,13 @@
 // This file contains a printer that converts from our internal representation
 // of machine-dependent LLVM code to GAS-format DSP assembly language.
 //
-//===----------------------------------------------------------------------===//
+
 #include "DSPAsmPrinter.h"
 #include "InstPrinter/DSPInstPrinter.h"
 #include "MCTargetDesc/DSPBaseInfo.h"
 #include "DSP.h"
 #include "DSPInstrInfo.h"
+#include "DSPVLIWBundler.h"
 #include "DSPMachineFunction.h"
 #include "MCTargetDesc\DSPMCInst.h"
 #include "llvm/ADT/SmallString.h"
@@ -70,7 +71,9 @@ bool DSPAsmPrinter::runOnMachineFunction(MachineFunction &MF){
 
 void DSPAsmPrinter::EmitInstruction(const MachineInstr *MI){
 	//std::cout << "In DSPAsmPrinter.cpp EmitInstruction" << std::endl;
+	DSPVLIWBundler *BD = DSPVLIWBundler::getBundler();
 	if (MI->isBundle()){
+		//std::cout << "is bundled" << std::endl;
 		std::vector<const MachineInstr *> BundleMIs;
 		const MachineBasicBlock *MBB = MI->getParent();
 		MachineBasicBlock::const_instr_iterator MII = MI;
@@ -92,17 +95,17 @@ void DSPAsmPrinter::EmitInstruction(const MachineInstr *MI){
 		for (unsigned Index = 0; Index < Size; Index++){
 			DSPMCInst MCI;
 			//get the FuncUnits for InstPrinter
-
 			InstrItineraryData DSPInstrItins = Subtarget->getInstrItineraryForCPU("dspse");
 			unsigned InsnClass = BundleMIs[Index]->getDesc().getSchedClass();
-			//std::cout << "asmprinter InstClass" << InsnClass << std::endl;
+			
 			const llvm::InstrStage *IS = DSPInstrItins.beginStage(InsnClass);
+			MCI.setIS(IS);
 			unsigned FuncUnits = IS->getUnits();
 			//std::cout << "asmprinter" << FuncUnits << std::endl;
 			MCI.setPacketStart(Index == 0);
 			MCI.setPacketEnd(Index == (Size - 1));
-
-
+			unsigned slot = BD->InstrToSlot[BundleMIs[Index]];
+			MCI.setPos(slot);
 			//if it is the CFIInstruction, now use the defalut emit function
 			unsigned num = BundleMIs[Index]->getNumOperands();
 			bool isCFI = false;
@@ -121,9 +124,15 @@ void DSPAsmPrinter::EmitInstruction(const MachineInstr *MI){
 	}
 	else{
 		DSPMCInst MCI;
-			MCI.setPacketStart(true);
-			MCI.setPacketEnd(true);
-		
+		InstrItineraryData DSPInstrItins = Subtarget->getInstrItineraryForCPU("dspse");
+		unsigned InsnClass = MI->getDesc().getSchedClass();
+
+		const llvm::InstrStage *IS = DSPInstrItins.beginStage(InsnClass);
+		MCI.setIS(IS);
+		MCI.setPacketStart(true);
+		MCI.setPacketEnd(true);
+		unsigned slot = BD->InstrToSlot[MI];
+		MCI.setPos(slot);
 		MCInstLowering.Lower(MI, MCI);
 		EmitToStreamer(OutStreamer, MCI);
 	}
@@ -153,6 +162,9 @@ void DSPAsmPrinter::printSavedRegsBitmask(raw_ostream &O) {
 	O << ', ' << CPUTopSavedRegOff << '\n';
 	*/
 }
+
+
+
 // Print a 32 bit hex number with all numbers.
 void DSPAsmPrinter::printHex32(unsigned Value, raw_ostream &O) {
 	O << "0x";

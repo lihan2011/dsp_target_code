@@ -71,7 +71,7 @@ SelectAddr(SDNode *Parent, SDValue Addr, SDValue &Base, SDValue &Offset) {
 	}
 	// if Address is FI, get the TargetFrameIndex.
 	if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
-		//DEBUG(dbgs() << "if Address is FI" << "\n");
+		DEBUG(dbgs() << "if Address is FI" << "\n");
 		Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), ValTy);
 		Offset = CurDAG->getTargetConstant(0, ValTy);
 		return true;

@@ -45,4 +45,5 @@ def RetCC_DSP : CallingConv<[
 	CCDelegateTo<RetCC_DSPCommon>
 ]>;
 
-def CSR_O32 : CalleeSavedRegs<(add  LR, FP, (sequence "A%u", 3, 0), (sequence "S%u", 7, 0))>;
+//def CSR_O32 : CalleeSavedRegs<(add  LR, FP, (sequence "A%u", 3, 0), (sequence "S%u", 7, 0))>;
+def CSR_O32 : CalleeSavedRegs<(add  LR)>;

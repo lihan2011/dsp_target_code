@@ -22,9 +22,11 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetOptions.h"
-
-
+#include <iostream>
+#define DEBUG_TYPE "dsp_frame_info"
 using namespace llvm;
 
 
@@ -56,6 +58,8 @@ using namespace llvm;
 			Offset = RoundUpToAlignment(Offset + Size, Size);
 		}
 		unsigned MaxAlign = MFI->getMaxAlignment();
+		DEBUG(dbgs() << "max Align" << MaxAlign << "\n");
+		std::cout << "max align" << MaxAlign << std::endl;
 		// Check that MaxAlign is not zero if there is a stack object that is not a
 		// callee-saved spill.
 		assert(!MFI->getObjectIndexEnd() || MaxAlign);

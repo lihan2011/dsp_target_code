@@ -40,6 +40,25 @@ namespace llvm{
 
 		//const DSPRegisterInfo &getRegisterInfo()const{ return RI; }
 		virtual const DSPRegisterInfo &getRegisterInfo() const = 0;
+
+		bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+			MachineBasicBlock *&FBB,
+			SmallVectorImpl<MachineOperand> &Cond,
+			bool AllowModify) const override;
+
+		unsigned RemoveBranch(MachineBasicBlock &MBB) const override;
+
+		unsigned InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+			MachineBasicBlock *FBB,
+			const SmallVectorImpl<MachineOperand> &Cond,
+			DebugLoc DL) const override;
+		bool
+			ReverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
+
+		void BuildCondBr(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+			DebugLoc DL,
+			const SmallVectorImpl<MachineOperand> &Cond) const;
+
 		void storeRegToStackSlot(MachineBasicBlock &MBB,
 			MachineBasicBlock::iterator MBBI,
 			unsigned SrcReg, bool isKill, int FrameIndex,

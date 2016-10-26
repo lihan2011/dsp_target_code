@@ -487,7 +487,6 @@ namespace {
 				   if (judgeSlot&&DSP::SLOT0_ONLY)judgeSlot = judgeSlot | DSP::SLOT1;
 				   else judgeSlot = judgeSlot | DSP::SLOT0_ONLY;
 				   break;
-
 		}
 		case 12:{
 					if (judgeSlot&&DSP::SLOT2)judgeSlot = judgeSlot | DSP::SLOT3;
@@ -532,7 +531,6 @@ namespace {
 				if (MII->getOpcode() == DSP::Ret || MII->getOpcode() == DSP::RetLR||MII->getOpcode()==DSP::NOP){
 					endPacket(MBB, MI);
 				}
-					
 				else 
 					judgeSlots(MBB, MI);
 				ResourceTracker->reserveResources(MI);

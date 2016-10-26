@@ -31,7 +31,9 @@ add_llvm_target(DSPCodeGen
 	DSPSubtarget.cpp
 	DSPTargetObjectFile.cpp
 	DSPSelectionDAGInfo.cpp
+	DSPSWLoops.cpp
 	DSPVLIWPacketizer.cpp
+	DSPVLIWBundler.cpp
 	DSPDelaySlotFiller.cpp
 	DSPDelUselessJMP.cpp
 	DSPMachineScheduler.cpp

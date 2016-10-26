@@ -77,7 +77,9 @@ static bool isCall(const MachineInstr *MI){
 static bool isReturn(const MachineInstr *MI){
 	return MI->isReturn();
 }
-
+static bool isVLIW(const MachineInstr *MI){
+	return false;
+}
 /// runOnMachineBasicBlock - Fill in delay slots for the given basic block.
 /// We assume there is only one delay slot per delayed instruction.
 bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {

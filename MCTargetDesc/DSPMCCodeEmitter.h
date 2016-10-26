@@ -45,7 +45,7 @@ namespace llvm {
 	public:
 		DSPMCCodeEmitter(const MCInstrInfo &mcii, MCContext &Ctx_, bool IsLittle)
 			: MCII(mcii), Ctx(Ctx_), IsLittleEndian(IsLittle) {}
-		~DSPMCCodeEmitter() {}
+		~DSPMCCodeEmitter();
 		void EmitByte(unsigned char C, raw_ostream &OS) const;
 		void EmitInstruction(uint64_t Val, unsigned Size, raw_ostream &OS) const;
 		void EncodeInstruction(const MCInst &MI, raw_ostream &OS,

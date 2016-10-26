@@ -91,6 +91,10 @@ SDValue DSPTargetLowering::getTargetNode(JumpTableSDNode *N, EVT Ty,
 	return DAG.getTargetJumpTable(N->getIndex(), Ty, Flag);
 }
 
+SDValue DSPTargetLowering::getTargetNode(ConstantPoolSDNode *N, EVT Ty, SelectionDAG &DAG, unsigned Flag) const{
+	return DAG.getTargetConstantPool(N->getConstVal(), Ty, N->getAlignment(),N->getOffset(),Flag);
+}
+
 //DAG representation
 const char *DSPTargetLowering::getTargetNodeName(unsigned Opcode) const {
 	switch (Opcode){
@@ -109,6 +113,8 @@ const char *DSPTargetLowering::getTargetNodeName(unsigned Opcode) const {
 	case DSPISD::Wrapper: return "DSPISD::Wrapper"; break;
 	case DSPISD::Hi: return "DSPISD::Hi"; break;
 	case DSPISD::Lo: return "DSPISD::Lo"; break;
+	case DSPISD::InsertVE8: return "DSPISD::InsertVE8"; break;
+	case DSPISD::InsertVE16: return "DSPISD::InsertVE16"; break;
 	}
 
 }
@@ -125,25 +131,48 @@ DSPTargetLowering::DSPTargetLowering(DSPTargetMachine &TM, const DSPSubtarget &S
 	// It will emit .align 2 later
 
 	setMinFunctionAlignment(2);
+	setMinStackArgumentAlignment(16);
 	// must, computeRegisterProperties - Once all of the register classes are
 	// added, this allows us to compute derived properties we expose.
 	computeRegisterProperties();
 
 	setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
 	setOperationAction(ISD::STORE, MVT::v4i32, Legal);
+
+	setBooleanContents(ZeroOrOneBooleanContent);
 	setOperationAction(ISD::BUILD_VECTOR, MVT::v4i32, Custom);
 	setOperationAction(ISD::BUILD_VECTOR, MVT::v8i16, Custom);
 	setOperationAction(ISD::BUILD_VECTOR, MVT::v16i8, Custom);
 	//setTargetDAGCombine
 
+	setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16i8, Custom);
+	setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v8i16, Custom);
+
+	//setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::i16, Custom);
+	//setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::i8, Custom);
+
+
 	setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
 	setOperationAction(ISD::GlobalTLSAddress, MVT::i32, Custom);
 	setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
-	setOperationAction(ISD::BR_CC, MVT::i32, Expand);
+
+
+	setOperationAction(ISD::BR_CC, MVT::i32, Promote);
+	AddPromotedToType(ISD::BR_CC, MVT::i1, MVT::i32);
+
+	setOperationAction(ISD::BRCOND, MVT::Other, Custom);
+
+
+
+	
+	//AddPromotedToType(ISD::SETCC, MVT::i1, MVT::i32);
 
 	setOperationAction(ISD::SELECT, MVT::i32, Custom);
+
+
 	setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
 	setOperationAction(ISD::SELECT_CC, MVT::Other, Expand);
+	setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::Other, Expand);
 }
 
 const DSPTargetLowering *DSPTargetLowering::create(DSPTargetMachine &TM, const DSPSubtarget &STI){
@@ -189,40 +218,61 @@ LowerJumpTable(SDValue Op, SelectionDAG &DAG) const
 	return getAddrLocal(N, Ty, DAG);
 }
 
+
+/// isZero - Returns true if Elt is a constant integer zero
+static bool isZero(SDValue V) {
+	ConstantSDNode *C = dyn_cast<ConstantSDNode>(V);
+	return C && C->isNullValue();
+}
 static SDValue LowerBuildVector(SDValue Op, SelectionDAG &DAG){
 	SDLoc dl(Op);
 	MVT VT = Op.getSimpleValueType();
 	MVT ExtVT = VT.getVectorElementType();
 	unsigned NumElems = Op.getNumOperands();
+	BuildVectorSDNode* BVN = dyn_cast<BuildVectorSDNode>(Op);
+	SDValue Chain = Op.getOperand(0);
 
-
-
-	/*if (ExtVT == MVT::i32){
-		SmallVector<SDValue, 4> Val;
-		for (int i = 0; i < 4; i++){
-			Val.push_back(Op.getOperand(i));
+	unsigned NumZero = 0;
+	unsigned NumNonZero = 0;
+	unsigned NonZeros = 0;
+	bool IsAllConstants = true;
+	SmallSet<SDValue, 8> Values;
+	for (unsigned i = 0; i < NumElems; ++i) {
+		SDValue Elt = Op.getOperand(i);
+		if (Elt.getOpcode() == ISD::UNDEF)
+			continue;
+		Values.insert(Elt);
+		if (Elt.getOpcode() != ISD::Constant &&
+			Elt.getOpcode() != ISD::ConstantFP)
+			IsAllConstants = false;
+		if (isZero(Elt))
+			NumZero++;
+		else {
+			NonZeros |= (1 << i);
+			NumNonZero++;
 		}
-		return DAG.getNode(DSPISD::BUILDVECTOR4, dl, MVT::v4i32, Val);
-	}*/
+	}
+	DEBUG(dbgs() << "is all constant?  " << IsAllConstants << "\n");
 
 	return SDValue();
-
-
 }
 
 SDValue DSPTargetLowering::LowerConstantPool(SDValue Op, SelectionDAG &DAG)const {
 	DEBUG(dbgs() << "this is before lower constant pool" << "\n");
 	ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
-	unsigned char OpFlag = DSPII::MO_GOT;
+	//unsigned char OpFlag = DSPII::MO_ABS_HI;
 	unsigned WrapperKind = DSPISD::Wrapper;
+	ConstantPoolSDNode *N = cast<ConstantPoolSDNode>(Op);
 	CodeModel::Model M = DAG.getTarget().getCodeModel();
-	SDValue Result = DAG.getTargetConstantPool(CP->getConstVal(), getPointerTy(),
-		CP->getAlignment(),
-		CP->getOffset(), OpFlag);
+	EVT Ty = Op.getValueType();
 	SDLoc DL(CP);
-	Result = DAG.getNode(WrapperKind, DL, getPointerTy(), Result);
+	SDValue HI = getTargetNode(N,Ty,DAG, DSPII::MO_ABS_HI);
+	SDValue LO = getTargetNode(N, Ty, DAG, DSPII::MO_ABS_LO);
+	SDValue Result = getAddrNonPIC(N, Ty, DAG);
+	//Result = DAG.getNode(WrapperKind, DL, getPointerTy(), Result);
 	DEBUG(dbgs() << "this is after lower constant pool" << "\n");
-	return Result;
+	//if (getTargetMachine().getRelocationModel() == Reloc::PIC_)
+		return Result;
 
 }
 
@@ -281,6 +331,40 @@ SDValue DSPTargetLowering::LowerGlobalTLSAddress(SDValue Op,
 	return DAG.getNode(ISD::ADD, DL, MVT::i32, HiPart, Lo);
 }
 
+SDValue DSPTargetLowering::LowerInsertVectorElt(SDValue Op, SelectionDAG &DAG) const {
+	std::cout << "vector insert" << std::endl;
+	SDLoc DL(Op);
+	EVT Ty = Op.getValueType();
+	EVT ScalarTy = Ty.getScalarType();
+	std::cout << "size " << ScalarTy.getSizeInBits() << std::endl;
+	SDValue Imm = Op.getOperand(2);
+	SDValue Value = Op.getOperand(1);
+	if (ScalarTy == MVT::i16)
+		return DAG.getNode(DSPISD::InsertVE16, DL, Ty, Op.getOperand(0), Value, Imm);
+
+	if (ScalarTy == MVT::i8)
+		return DAG.getNode(DSPISD::InsertVE8, DL, Ty, Op.getOperand(0), Value, Imm);
+
+	return SDValue();
+}
+
+static SDValue LowerExtractVectorElt(SDValue Op,SelectionDAG &DAG){
+	std::cout << "vector extract" << std::endl;
+	SDLoc DL(Op);
+	EVT Ty = Op.getValueType();
+	EVT ScalarTy = Ty.getScalarType();
+	std::cout << "size " << ScalarTy.getSizeInBits() << std::endl;
+	SDValue Imm = Op.getOperand(2);
+	SDValue Value = Op.getOperand(1);
+	if (ScalarTy == MVT::i16)
+		return DAG.getNode(DSPISD::ExtractVE16, DL, Ty, Op.getOperand(0), Value, Imm);
+
+	if (ScalarTy == MVT::i8)
+		return DAG.getNode(DSPISD::ExtractVE8, DL, Ty, Op.getOperand(0), Value, Imm);
+
+	return Op;
+}
+
 SDValue DSPTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 	std::cout << "op code is " << Op.getOpcode() << std::endl;
 	switch (Op.getOpcode())
@@ -288,6 +372,8 @@ SDValue DSPTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 	default: llvm_unreachable("Should not custom lower this ");
 	case ISD::INTRINSIC_WO_CHAIN: return LowerINTRINSIC_WO_CHAIN(Op, DAG);
 	case ISD::BUILD_VECTOR: return LowerBuildVector(Op, DAG);
+	case ISD::INSERT_VECTOR_ELT: return LowerInsertVectorElt(Op, DAG);
+	//case ISD::EXTRACT_VECTOR_ELT: return LowerExtractVectorElt(Op, DAG);
 	case ISD::SELECT: return LowerSELECT(Op, DAG);
 	case ISD::JumpTable: return LowerJumpTable(Op, DAG);
 	case ISD::BRCOND:             return LowerBRCOND(Op, DAG);
@@ -298,13 +384,16 @@ SDValue DSPTargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 	case ISD::SRA_PARTS:          return LowerShiftRightParts(Op, DAG, true);
 	case ISD::SRL_PARTS:          return LowerShiftRightParts(Op, DAG, false);
 	}
-
 	return SDValue();
 }
 
 SDValue DSPTargetLowering::
 LowerBRCOND(SDValue Op, SelectionDAG &DAG) const
 {
+	SDLoc DL(Op);
+	SDValue XOr = Op.getOperand(1);
+	SDValue SetCCV = XOr.getOperand(0);
+	DEBUG(dbgs() << "xor op" << XOr.getOpcode() << "\n");
 	return Op;
 }
 
@@ -433,10 +522,15 @@ static bool CC_DSPS32(unsigned ValNo, MVT ValVT, MVT LocVT,
 static bool CC_DSPO32(unsigned ValNo, MVT ValVT, MVT LocVT,
 	CCValAssign::LocInfo LocInfo, ISD::ArgFlagsTy ArgFlags,
 	CCState &State) {
+
+	//number of pass var registers in scalar size
 	static const unsigned IntRegsSize = 2;
+
+	static const unsigned VectorRegsSize = 2;
 
 	static const MCPhysReg IntRegs[] = { DSP::A0, DSP::A1 };
 
+	static const MCPhysReg VectorRegs[] = { DSP::VR2, DSP::VR3 };
 	// Do not process byval args here.
 	if (ArgFlags.isByVal())
 		return true;
@@ -477,6 +571,9 @@ static bool CC_DSPO32(unsigned ValNo, MVT ValVT, MVT LocVT,
 			Reg = State.AllocateReg(IntRegs, IntRegsSize);
 		State.AllocateReg(IntRegs, IntRegsSize);
 		LocVT = MVT::i32;
+	}
+	else if (ValVT == MVT::v4i32){
+		Reg = State.AllocateReg(VectorRegs, VectorRegsSize);	
 	}
 	else
 		llvm_unreachable("Cannot handle this ValVT.");
@@ -735,8 +832,7 @@ const Type *RetTy) const {
 //===----------------------------------------------------------------------===//
 // Formal Arguments Calling Convention Implementation
 //===----------------------------------------------------------------------===//
-/// LowerFormalArguments - transform physical registers into virtual registers
-/// and generate load operations for arguments places on the stack.
+
 SDValue
 DSPTargetLowering::passArgOnStack(SDValue StackPtr, unsigned Offset,
 SDValue Chain, SDValue Arg, SDLoc DL,
@@ -808,6 +904,9 @@ CallLoweringInfo &CLI, SDValue Callee, SDValue Chain) const {
 		Ops.push_back(InFlag);
 }
 
+
+/// LowerFormalArguments - transform physical registers into virtual registers
+/// and generate load operations for arguments places on the stack.
 SDValue DSPTargetLowering::LowerFormalArguments(SDValue Chain,
 	CallingConv::ID CallConv,
 	bool IsVarArg,
@@ -829,6 +928,8 @@ SDValue DSPTargetLowering::LowerFormalArguments(SDValue Chain,
 	DSPFI->setFormalArgInfo(CCInfo.getNextStackOffset(),
 		DSPCCInfo.hasByValArg());
 
+
+	// 函数参数的开始
 	Function::const_arg_iterator FuncArg =
 		DAG.getMachineFunction().getFunction()->arg_begin();
 	bool UseSoftFloat = Subtarget.abiUsesSoftFloat();
@@ -962,6 +1063,8 @@ LLVMContext &Context) const {
 		RVLocs, Context);
 	return CCInfo.CheckReturn(Outs, RetCC_DSP);
 }
+
+
 SDValue DSPTargetLowering::LowerReturn(SDValue Chain,
 	CallingConv::ID CallConv,
 	bool isVarArg,

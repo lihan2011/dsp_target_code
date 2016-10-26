@@ -19,8 +19,6 @@
 def SDT_DSPRet : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
 def SDT_DSPVec : SDTypeProfile<1, 4,[SDTCisSameAs<4,1>,SDTCisSameAs<3,1>,SDTCisSameAs<2,1>,SDTCisInt<1>,SDTCisVec<0>]>;
 
-def SDT_DSPVecInsert : SDTypeProfile<1,3,[SDTCisPtrTy<3>,SDTCisSameAs<1,0>,SDTCisVec<0>]>;
-
 def SDTDSPVecOp : SDTypeProfile<1,2,[SDTCisVec<1>,SDTCisVec<0>]>;
 def SDT_DSPWrapper :SDTypeProfile<1,1,[SDTCisSameAs<0,1>,SDTCisPtrTy<0>]>;
 
@@ -44,7 +42,7 @@ def callseq_end   : SDNode<"ISD::CALLSEQ_END", SDT_DSPCallSeqEnd,
 
 def DSPV4 : SDNode<"DSPISD::BUILDVECTOR4",SDT_DSPVec,[SDNPVariadic]>;
 
-def DSPMovGR : SDNode<"DSPISD::MovGR",SDTIntBinOp,[SDNPCommutative]>;
+
 def DSPMAX : SDNode<"DSPISD::MAX",SDTIntBinOp,[SDNPCommutative]>;
 def DSPMIN : SDNode<"DSPISD::MIN",SDTIntBinOp,[SDNPCommutative]>;
 
@@ -57,8 +55,8 @@ def DSPLo : SDNode<"DSPISD::Lo",SDTIntUnaryOp>;
 def DSPGPRel : SDNode<"DSPISD::GPRel",SDTIntUnaryOp>;
 def DSPWrapper : SDNode<"DSPISD::Wrapper",SDT_DSPWrapper>;
 
-def DSPVecInsert8: SDNode<"DSPISD::InsertVE8",SDT_DSPVecInsert>;
-def DSPVecInsert16: SDNode<"DSPISD::InsertVE16",SDT_DSPVecInsert>;
+
+
 
 
 //===----------------------------------------------------------------------===//
@@ -87,7 +85,7 @@ let DecoderMethod= "DecodeSimm5";
 }
 
 def simm9 :Operand<i32> {
-//let DecoderMethod= "DecodeSimm9";
+let DecoderMethod= "DecodeSimm9";
 }
 
 def simm10 :Operand<i32> {
@@ -109,17 +107,16 @@ let EncoderMethod = "getBranchTargetOpValue";
 let OperandType = "OPERAND_PCREL";
 }
 
-// Plus 1.
-def Plus1 : SDNodeXForm<imm, [{ return getImm(N, N->getSExtValue() + 1); }]>;
+
 
 
 // Node immediate fits as 16-bit sign extended on target immediate.
 // e.g. addi, andi
 def immSExt16 : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
-def immSExt10 : PatLeaf<(imm), [{ return isInt<10>(N->getSExtValue()); }]>;
-def immSExt11 : PatLeaf<(imm), [{ return isInt<11>(N->getSExtValue()); }]>;
-def immSExt9 : PatLeaf<(imm), [{ return isInt<9>(N->getSExtValue()); }]>;
-def immSExt5 : PatLeaf<(imm), [{ return isInt<5>(N->getSExtValue()); }]>;
+def immSExt10 : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
+def immSExt11 : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
+def immSExt9 : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
+def immSExt5 : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
 def shamt : Operand<i32>;
 // Unsigned Operand
 def uimm16 : Operand<i32> {
@@ -134,16 +131,7 @@ let PrintMethod = "prinUnsignedImm";
 }
 
 
-// True if (N + 1) fits in 16-bit field.
-def immSExt16Plus1 : PatLeaf<(imm), [{
-  return isInt<17>(N->getSExtValue()) && isInt<16>(N->getSExtValue() + 1);
-}]>;
 
-
-// True if (N + 1) fits in 16-bit field.
-def immSExt9Plus1 : PatLeaf<(imm), [{
-  return isInt<10>(N->getSExtValue()) && isInt<10>(N->getSExtValue() + 1);
-}]>;
 
 
 // DSP Address Mode! SDNode frameindex could possibily be a match
@@ -334,16 +322,10 @@ let Inst{19-4} = imm16;
 
 
 
-class MovBase<bits<3> typeop,bits<3> op ,bits<10> inner_op ,string instr_asm, SDNode Op,RegisterClass RC,RegisterClass RD,InstrItinClass itin>:
-F_2Reg_imm4<typeop, op,inner_op, (outs RC:$rd), (ins RC:$ra, RD:$rb,uimm16:$imm),
-!strconcat(instr_asm, "\t$ra,$rb,$imm"),[(set RC:$rd ,(Op RC:$ra, RD:$rb, immZExt16:$imm))],itin>{
+class MovBase<bits<3> typeop,bits<3> op ,bits<10> inner_op , string instr_asm,RegisterClass RC,RegisterClass RD,InstrItinClass itin>:
+F_2Reg_imm4<typeop, op,inner_op, (outs), (ins RC:$ra,RD:$rb,uimm16:$imm),
+!strconcat(instr_asm, "\t$ra,$rb,$imm"),[],itin>{
 }
-
-class VMovBase<bits<3> typeop,bits<3> op ,bits<10> inner_op ,string instr_asm, SDNode Op,RegisterClass RC,RegisterClass RD,InstrItinClass itin>:
-F_2Reg_imm4<typeop, op,inner_op, (outs RC:$ra), (ins  RD:$rb,uimm16:$imm),
-!strconcat(instr_asm, "\t$ra,$rb,$imm"),[(set RC:$ra ,(Op RD:$rb, immZExt16:$imm))],itin>{
-}
-
 
 class RMovBase<bits<3> typeop,bits<3> op ,bits<8> inner_op, string instr_asm,RegisterClass RC,RegisterClass RD,InstrItinClass itin>:
 F_2Reg_2<typeop, op,inner_op, (outs), (ins RC:$ra,RD:$rb),
@@ -407,9 +389,9 @@ let isCommutable = 0;
 }
 
 class SetCC_RI<bits<3> typeop,bits<3> op, bits<5> inner_op, string instr_asm, PatFrag cond_op , RegisterClass RC>
-:F_1Reg_imm9<typeop,op,inner_op,(outs GPROut:$rs), (ins RC:$ra, simm16:$imm9),
+:F_1Reg_imm9<typeop,op,inner_op,(outs GPROut:$rs), (ins RC:$ra, simm9:$imm9),
 !strconcat(instr_asm, "\t $ra, $imm9"),
-[/*(set GPROut:$rs, (cond_op RC:$ra, immSExt16:$imm16))*/],ALU32_S_SLOT01>{
+[(set GPROut:$rs, (cond_op RC:$ra, simm9:$imm9))],ALU32_S_SLOT01>{
 let Inst{25-20} = 0b000000;
 let isCommutable = 0;
 }
@@ -474,8 +456,7 @@ let isCall=1, hasDelaySlot=1 in {
 /// No operation
 def NOP : F_Special_0Reg<4,0,0, (outs), (ins), "nop", [],NOP_SLOT0123>;
 
-//special Nop in vload vstore
-def NOP_S : F_Special_0Reg<6,0,0, (outs), (ins), "nops", [],NOP_SLOT0123>;
+
 
 //***************************************************************************************************//
 
@@ -497,59 +478,43 @@ def CALLR : JumpLinkReg<0x4, 0, 0b111, "callr", GPROut>;
 
 //*****************************************data translation instruction******************************//
 def MovVR : DSPPseudo<(outs VPR4Out:$ra), (ins GPROut:$imm16,GPROut:$imm2,GPROut:$imm3,GPROut:$imm4), "", [(set VPR4Out:$ra,(DSPV4 GPROut:$imm16,GPROut:$imm2,GPROut:$imm3,GPROut:$imm4))]>;
-def MovGR : DSPPseudo<(outs GPROut:$ra), (ins CPURegs:$rs,simm16:$in), "", [(set GPROut:$ra, (DSPMovGR CPURegs:$rs, immSExt16:$in)) ]>;
+def MovGR : DSPPseudo<(outs GPROut:$ra), (ins CPURegs:$rs,simm16:$in), "", [(set GPROut:$ra, (DSPMAX CPURegs:$rs, immSExt16:$in)) ]>;
 def LEA   : DSPPseudo<(outs GPROut:$ra), (ins mem:$addr),"",[(set GPROut:$ra, addr:$addr)]>;
-
-def MovG2V40 : MovBase<4,6,0b0000100111,"movg2v40",insertelt,VPR4Out,GPROut,ALU32_V_SLOT01>;
-//def MovG2V20 : MovBase<4,6,0b0000101011,"movg2v20",insertelt,CPU128Regs,GPROut,ALU32_V_SLOT01>;
-def MovG2V10 : MovBase<4,6,0b0000101111,"movg2v10",DSPVecInsert8,VPR16Out,GPROut,ALU32_V_SLOT01>;
-
-
-def MovV2G40 : VMovBase<4,6,0b0000010111,"movv2g40",extractelt,GPROut,VPR4Out,ALU32_V_SLOT01>;
-//def MovV2G20 : VMovBase<4,6,0b0000011011,"movv2g20",extractelt,GPROut,CPU128Regs,ALU32_V_SLOT01>;
-def MovV2G10 : VMovBase<4,6,0b0000011111,"movv2g10",vector_extract,GPROut,VPR16Out,ALU32_V_SLOT01>;
-
+def MovG2V40 : MovBase<4,6,0b0000100111,"movg2v40",VPR4Out,GPROut,ALU32_V_SLOT01>;
 def MovIGH : SMovBase<4,5,0b0001,"movigh",GPROut,Data_Transmission_2_SLOT0123>;
 def MovIGL : SMovBase<4,5,0b0101,"movigl",GPROut,Data_Transmission_2_SLOT0123>;
 def VMovG2V40 : RMovBase<4,4,0b10100101,"vmovrg2v40",VPR4Out,GPROut,ALU32_V_SLOT01>;
-def MovG2G : RMovBase<4,4,0b10000000,"movg2g",GPROut,GPROut,ALU32_S_SLOT01>;
 //***************************************************************************************************//
 
 
 
 //**********************************************A&L instruction**************************************//
-def ADDiu :ArithLogicI<0x7,0x6,0b000,"addi",add,simm11,immSExt11, CPURegs>;
+def ADDiu :ArithLogicI<0x4,0x6,0b000,"addi",add,simm11,immSExt11, CPURegs>;
 
-def ADDu : ArithLogicR<7,1,0b00000000, "add", add, ALU32_S_SLOT01, CPURegs, 1>;
-def SUBu : ArithLogicR<7,1,0b00000010, "sub", sub, ALU32_S_SLOT01, CPURegs, 1>;
-def MUL : ArithLogicR<7,1,0b00001100,"mul32", mul, ALU32_S_SLOT01,CPURegs,1>;
-def ORu :ArithLogicR<7,1,0b00000101,"or",or,ALU32_S_SLOT01,CPURegs,1>;
+def ADDu : ArithLogicR<4,1,0b00000000, "add", add, ALU32_S_SLOT01, CPURegs, 1>;
+def SUBu : ArithLogicR<4,1,0b00000010, "sub", sub, ALU32_S_SLOT01, CPURegs, 1>;
+def MUL : ArithLogicR<4,1,0b00001100,"mul32", mul, ALU32_S_SLOT01,CPURegs,1>;
+//def ORi : ArithLogicI<0,1,0b00000101, "or", or, uimm16, immZExt16, CPURegs>;
+def ORu :ArithLogicR<4,1,0b00000101,"or",or,ALU32_S_SLOT01,CPURegs,1>;
 //def SHL : shift_rotate_imm32<0,1,0b00001001, 0x00, "sl", shl>;
-def SHL : shift_rotate_reg<7,1,0b00001001, 0x00, "sl", shl,CPURegs>;
-def SRA : shift_rotate_reg<7,1,0b00001010, 0x00, "sra", sra,CPURegs>;
-def SRL : shift_rotate_reg<7,1,0b00001011,0x00,"srl",srl,CPURegs>;
-def AND : ArithLogicR<0x7,0x1,0b00000100,"and", and, ALU32_S_SLOT01,CPURegs,1>;
-def XORu : ArithLogicR<7,1,0b00000110, "xor", xor, ALU32_S_SLOT01, CPURegs,1>;
+def SHL : shift_rotate_reg<4,1,0b00001001, 0x00, "sl", shl,CPURegs>;
+def SRA : shift_rotate_reg<4,1,0b00001010, 0x00, "sra", sra,CPURegs>;
+def AND : ArithLogicR<0x4,0x1,0b00000100,"and", and, ALU32_S_SLOT01,CPURegs,1>;
+def XORu : ArithLogicR<4,1,0b00000110, "xor", xor, ALU32_S_SLOT01, CPURegs,1>;
 
 
 //def NOT  : ArithLogicR2i5<0,4,0b00111,"not",not,ALU32_S_SLOT01,CPURegs,0>;
-def EQ   :SetCC_R<7,4,0b000000000,"eq",seteq,CPURegs>;
-def NEQ   :SetCC_R<7,4,0b00000001,"neq",setne,CPURegs>;
-def GT   :SetCC_R<7,4,0b00000010,"gt",setgt,CPURegs>;
-def GTU   :SetCC_R<7,4,0b00001010,"gtu",setugt,CPURegs>;
-def GE   :SetCC_R<7,4,0b00000100,"ge",setge,CPURegs>;
-def GEU   :SetCC_R<7,4,0b00001100,"geu",setuge,CPURegs>;
-def LT   :SetCC_R<7,4,0b00000011,"lt",setlt,CPURegs>;
-def LTU   :SetCC_R<7,4,0b00001011,"ltu",setult,CPURegs>;
-def LE   :SetCC_R<7,4,0b00000101,"le",setle,CPURegs>;
-def LEU   :SetCC_R<7,4,0b00001101,"leu",setule,CPURegs>;
-
-def EQI	:SetCC_RI<7,5,0b00010,"lti",seteq,CPURegs>;
-def NEQI:SetCC_RI<7,5,0b00110,"lti",setne,CPURegs>;
-def GTI :SetCC_RI<7,5,0b01010,"gti",setgt,CPURegs>;
-def LTI :SetCC_RI<7,5,0b01110,"lti",setlt,CPURegs>;
-def GEI :SetCC_RI<7,5,0b10010,"gei",setge,CPURegs>;
-def LEI	:SetCC_RI<7,5,0b10110,"lei",setle,CPURegs>;
+def EQ   :SetCC_R<4,4,0b000000000,"eq",seteq,CPURegs>;
+def NEQ   :SetCC_R<4,4,0b00000001,"neq",setne,CPURegs>;
+def GT   :SetCC_R<4,4,0b00000010,"gt",setgt,CPURegs>;
+def GTU   :SetCC_R<4,4,0b00001010,"gtu",setugt,CPURegs>;
+def GE   :SetCC_R<4,4,0b00000100,"ge",setge,CPURegs>;
+def GEU   :SetCC_R<4,4,0b00001100,"geu",setuge,CPURegs>;
+def LT   :SetCC_R<4,4,0b00000011,"lt",setlt,CPURegs>;
+def LTU   :SetCC_R<4,4,0b00001011,"ltu",setult,CPURegs>;
+def LE   :SetCC_R<4,4,0b00000101,"le",setle,CPURegs>;
+def LEU   :SetCC_R<4,4,0b00001101,"leu",setule,CPURegs>;
+def LTI :SetCC_RI<4,4,0b01110,"lti",setlt,CPURegs>;
 
 
 def MAX  :MMBase<4,1,0b00000111,"max",DSPMAX,ALU32_S_SLOT01,GPROut>;
@@ -562,87 +527,47 @@ def MIN  :MMBase<4,1,0b00001000,"min",DSPMIN,ALU32_S_SLOT01,GPROut>;
 
 //**************************************memory instruction*******************************************//
 /// Load and Store Instructions
-defm LD : LoadM32<defaultOp.Value,2,0b00010, "load32", load_a>;
-defm ST : StoreM32<7,3,0b010010, "store32", store_a>;
+defm LD : LoadM32<6,2,0b00010, "load32", load_a>;
+defm ST : StoreM32<6,3,2, "store32", store_a>;
 def LUi : LoadUpper<0,2,0b00011, "lui", GPROut, uimm16>;
 def LU : DSPPseudo<(outs CPURegs:$ra), (ins uimm16:$in), "", []>;
 
-def VSTORE32 : StoreM128<7,3,0b10101,"vstore40",store_a>;
-
-let hasDelaySlot = 1 in 
-def VLOAD32 : LoadM128<7,2,0b10001,"vload32",load_a>;
-
-def VSTORE16 : StoreM128_16<7,3,0b10110,"vstore20",store_a>;
-
-let hasDelaySlot = 1 in
-def VLOAD16 : LoadM128_16<7,2,0b10010,"vload16",load_a>;
-
-def VSTORE8 : StoreM128_8<7,3,0b10111,"vstore10",store_a>;
-
-let hasDelaySlot = 1 in
-def VLOAD8 : LoadM128_8<7,2,0b10011,"vload8",load_a>;
+def VSTORE32 : StoreM128<0,3,0b10101,"vstore32",store_a>;
+def VLOAD32 : LoadM128<0,2,0b10101,"vload32",load_a>;
+def VSTORE16 : StoreM128_16<0,3,0b10101,"vstore16",store_a>;
+def VLOAD16 : LoadM128_16<0,2,0b10101,"vload16",load_a>;
+def VSTORE8 : StoreM128_8<0,3,0b10101,"vstore8",store_a>;
+def VLOAD8 : LoadM128_8<0,2,0b10101,"vload8",load_a>;
 
 //***************************************************************************************************//
 
 //===----------------------------------------------------------------------===//
 // Arbitrary patterns that map to one or more instructions
 //===----------------------------------------------------------------------===//
+/*def : Pat<(i32 immSExt16:$in),
+(ADDiu ZERO, imm:$in)>;*/
 def :Pat<(i32 immSExt16:$in),
 (MovGR ZERO , imm:$in)>;
-
 def :Pat<(DSPHi tglobaladdr:$in),(MovIGH  ZERO, tglobaladdr:$in)>;
-
-
 def :Pat<(add CPURegs:$hi, (DSPLo tglobaladdr:$lo)),
 		(MovIGL CPURegs:$hi, tglobaladdr:$lo)>;
-
 def :Pat<(add CPURegs:$gp,(DSPGPRel tglobaladdr:$in)),
 		(ADDiu CPURegs:$gp, tglobaladdr:$in)>;
-//def :Pat<(i32(DSPWrapper tconstpool:$dst)),(MovGR ZERO, tconstpool:$dst)>;
+def :Pat<(i32(DSPWrapper tconstpool:$dst)),(MovGR ZERO, tconstpool:$dst)>;
 //def :Pat<(set GPROut:$ra, addr:$addr) ,(ADDiu SP, addr:$addr)>;
-
-
-
-def: Pat<(DSPHi tconstpool:$in),(MovIGH ZERO, tconstpool:$in)>;
-
-def: Pat<(add CPURegs:$hi,(DSPLo tconstpool:$lo)),
-			(MovIGL CPURegs:$hi, tconstpool:$lo)>;
 
 // brcond for cmp instruction (brcond CPURegs:$rt, bb:$imm21)
 multiclass BrcondPatsCmp<RegisterClass RC, Instruction JNEOp, Instruction JEQOp> {
-
-
-def : Pat<(brcond (i32 (setgt RC:$lhs, immSExt16Plus1:$rhs)), bb:$dst),
-              (JNEOp (LTI RC:$lhs, (Plus1 imm:$rhs)), bb:$dst)>;
-def : Pat<(brcond (i32 (setugt RC:$lhs, immSExt16Plus1:$rhs)), bb:$dst),
-              (JNEOp (LTI RC:$lhs, (Plus1 imm:$rhs)), bb:$dst)>;
-
-
-
-//def : Pat<(brcond (i32( setgt RC:$lhs, RC:$rhs)), bb:$dst),
-			//(JEQOp (GT RC:$lhs,RC:$rhs),bb:$dst)>;
-
-//def : Pat<(brcond (i32( setlt RC:$lhs, immSExt16:$imm9)), bb:$dst),
-			//(JEQOp (LTI RC:$lhs,immSExt16:$imm9),bb:$dst)>;
-
-//def : Pat<(brcond (i32( setgt RC:$lhs, immSExt9:$imm9)), bb:$dst),
-			//(JNEOp (LTI RC:$lhs,immSExt9:$imm9),bb:$dst)>;
-
-def : Pat<(brcond (i32( seteq RC:$lhs, immSExt16:$imm16)), bb:$dst),
-			(JEQOp (EQI RC:$lhs,immSExt16:$imm16),bb:$dst)>;
-def : Pat<(brcond (i32( setne RC:$lhs, immSExt16:$imm16)), bb:$dst),
-			(JEQOp (NEQI RC:$lhs,immSExt16:$imm16),bb:$dst)>;
-//def : Pat<(brcond (i32( setgt RC:$lhs, immSExt9:$imm9)), bb:$dst),
-			//(JEQOp (GTI RC:$lhs,immSExt9:$imm9),bb:$dst)>;
-
-
-
-def : Pat<(brcond (i32( setle RC:$lhs, immSExt9:$imm9)), bb:$dst),
-			(JEQOp (LEI RC:$lhs,immSExt9:$imm9),bb:$dst)>;
-//def : Pat<(brcond (i32( setge RC:$lhs, immSExt9:$imm9)), bb:$dst),
-		//	(JEQOp (GEI RC:$lhs,immSExt9:$imm9),bb:$dst)>;
+//def : Pat<(brcond (i32 (setne RC:$lhs, RC:$rhs)), bb:$dst),
+ //         (JNEOp (CMPOp RC:$lhs, RC:$rhs), bb:$dst)>;
+//def : Pat<(brcond (i32 (setune RC:$lhs, RC:$rhs)), bb:$dst),
+//          (JNEOp (CMPOp RC:$lhs, RC:$rhs), bb:$dst)>;
 def : Pat<(brcond RC:$cond, bb:$dst),
          (JEQOp RC:$cond,bb:$dst)>;
+def : Pat<(brcond (i32( setgt RC:$lhs, RC:$rhs)), bb:$dst),
+			(JEQOp (GT RC:$lhs,RC:$rhs),bb:$dst)>;
+def : Pat<(brcond (i32( setlt RC:$lhs, simm9:$imm9)), bb:$dst),
+			(JEQOp (LTI RC:$lhs,simm9:$imm9),bb:$dst)>;
 }
 defm : BrcondPatsCmp<CPURegs, JNC, JC>;
 
@@ -708,15 +633,15 @@ defm : SetgePats<CPURegs>;
 //****************************************vector instruction*****************************************//
 //Instrinsic function operation
 
-def VMAX40 :VMMBase<4,1,0b01001001,"vmax40",DSPVMAX,ALU32_V_SLOT01,VPR4Out>;
-def VMAX20 :VMMBase<4,1,0b01001010,"vmax20",DSPVMAX,ALU32_V_SLOT01,VPR8Out>;
-def VMAX10 :VMMBase<4,1,0b01001011,"vmax10",DSPVMAX,ALU32_V_SLOT01,VPR16Out>;
-def VMIN40 :VMMBase<4,1,0b01001101,"vmin40",DSPVMIN,ALU32_V_SLOT01,VPR4Out>;
-def VMIN20 :VMMBase<4,1,0b01001110,"vmin20",DSPVMIN,ALU32_V_SLOT01,VPR8Out>;
-def VMIN10 :VMMBase<4,1,0b01001111,"vmin10",DSPVMIN,ALU32_V_SLOT01,VPR16Out>;
-def VADD32 :VArithLogicR<4,1,0b01000001,"vadd40",add,ALU32_V_SLOT01,VPR4Out,1>;
-def VADD16 :VArithLogicR<4,1,0b01000010,"vadd16",add,ALU32_V_SLOT01,VPR8Out,1>;
-def VADD8 :VArithLogicR<4,1,0b01000011,"vadd8",add,ALU32_V_SLOT01,VPR16Out,1>;
+def VMAX40 :VMMBase<0,1,0b01001001,"vmax40",DSPVMAX,ALU32_V_SLOT01,VPR4Out>;
+def VMAX20 :VMMBase<0,1,0b01001001,"vmax20",DSPVMAX,ALU32_V_SLOT01,VPR8Out>;
+def VMAX10 :VMMBase<0,1,0b01001001,"vmax10",DSPVMAX,ALU32_V_SLOT01,VPR16Out>;
+def VMIN40 :VMMBase<0,1,0b01001001,"vmin40",DSPVMIN,ALU32_V_SLOT01,VPR4Out>;
+def VMIN20 :VMMBase<0,1,0b01001001,"vmin20",DSPVMIN,ALU32_V_SLOT01,VPR8Out>;
+def VMIN10 :VMMBase<0,1,0b01001001,"vmin10",DSPVMIN,ALU32_V_SLOT01,VPR16Out>;
+def VADD32 :VArithLogicR<0,1,0b01000001,"vadd40",add,ALU32_V_SLOT01,VPR4Out,1>;
+def VADD16 :VArithLogicR<0,1,0b01000001,"vadd16",add,ALU32_V_SLOT01,VPR8Out,1>;
+def VADD8 :VArithLogicR<0,1,0b01000001,"vadd8",add,ALU32_V_SLOT01,VPR16Out,1>;
 
 
 //***************************************************************************************************//
@@ -730,7 +655,7 @@ class Abs_Fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm,
   let isReMaterializable = 1;
 }
 
-def ABS :Abs_Fmt<0x4,0x4,0x45, "abs", ALU32_S_SLOT01, CPURegs, 0>;
+def ABS :Abs_Fmt<0x0,0x4,0x45, "abs", ALU32_S_SLOT01, CPURegs, 0>;
 
 class Test_Fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, 
                   InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
@@ -739,7 +664,7 @@ class Test_Fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm,
      [(set GPROut:$ra, (int_dsp_test_qb RC:$rb, RC:$rc))], itin> {
   let isReMaterializable = 1;
 }
-def TEST :Test_Fmt<0x4,0x4,0x46, "test", ALU32_S_SLOT01, CPURegs, 0>;
+def TEST :Test_Fmt<0x0,0x4,0x46, "test", ALU32_S_SLOT01, CPURegs, 0>;
 
 class Testi_Fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, 
                   InstrItinClass itin, Operand Od, PatLeaf imm_type, RegisterClass RC, bit isComm = 0>:
@@ -748,7 +673,7 @@ class Testi_Fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm,
      [(set GPROut:$ra, (int_dsp_testi_qb RC:$rb, imm_type:$imm5))], itin> {
   let isReMaterializable = 1;
 }
-def TESTI :Testi_Fmt<0x4,0x4,0x47, "testi", ALU32_S_SLOT01, simm5, immSExt5, CPURegs, 0>;
+def TESTI :Testi_Fmt<0x0,0x4,0x47, "testi", ALU32_S_SLOT01, simm5, immSExt5, CPURegs, 0>;
 
 class Cbw_Fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, 
                   InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
@@ -757,7 +682,7 @@ class Cbw_Fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm,
      [(set GPROut:$ra, (int_dsp_cbw_qb RC:$rb))], itin> {
   let isReMaterializable = 1;
 }
-def CBW :Cbw_Fmt<0x4,0x4,0x46, "cbw", ALU32_S_SLOT01, CPURegs, 0>;
+def CBW :Cbw_Fmt<0x0,0x4,0x46, "cbw", ALU32_S_SLOT01, CPURegs, 0>;
 
 class Chw_Fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, 
                   InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
@@ -766,7 +691,7 @@ class Chw_Fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm,
      [(set GPROut:$ra, (int_dsp_chw_qb RC:$rb))], itin> {
   let isReMaterializable = 1;
 }
-def CHW :Chw_Fmt<0x4,0x4,0x47, "chw", ALU32_S_SLOT01, CPURegs, 0>;
+def CHW :Chw_Fmt<0x0,0x4,0x47, "chw", ALU32_S_SLOT01, CPURegs, 0>;
 
 class bfext_fmt<bits<3> type, bits<3> op, bits<4> funct, string instr_asm, InstrItinClass itin, Operand Od, PatLeaf imm_type, RegisterClass RC, bit isComm = 0>:
 	F_2Reg_2imm5<type, op, funct, (outs GPROut:$ra), (ins RC:$rb, Od:$imm5_2, Od:$imm5_1),
@@ -775,7 +700,7 @@ class bfext_fmt<bits<3> type, bits<3> op, bits<4> funct, string instr_asm, Instr
   
 }
 
-def BFEXT : bfext_fmt<0x4, 0x6, 0x1, "bfext", ALU32_S_SLOT01, simm5, immSExt5,  CPURegs, 0>;
+def BFEXT : bfext_fmt<0x0, 0x6, 0x1, "bfext", ALU32_S_SLOT01, simm5, immSExt5,  CPURegs, 0>;
 
 class bfextu_fmt<bits<3> type, bits<3> op, bits<4> funct, string instr_asm, InstrItinClass itin, Operand Od, PatLeaf imm_type, RegisterClass RC, bit isComm = 0>:
 	F_2Reg_2imm5<type, op, funct, (outs GPROut:$ra), (ins RC:$rb, Od:$imm5_2, Od:$imm5_1),
@@ -784,7 +709,7 @@ class bfextu_fmt<bits<3> type, bits<3> op, bits<4> funct, string instr_asm, Inst
   
 }
 
-def BFEXTU : bfextu_fmt<0x4, 0x6, 0x1, "bfextu", ALU32_S_SLOT01, simm5, immSExt5,  CPURegs, 0>;
+def BFEXTU : bfextu_fmt<0x0, 0x6, 0x1, "bfextu", ALU32_S_SLOT01, simm5, immSExt5,  CPURegs, 0>;
 
 class bfst_fmt<bits<3> type, bits<3> op, bits<4> funct, string instr_asm, InstrItinClass itin, Operand Od, PatLeaf imm_type, RegisterClass RC, bit isComm = 0>:
 	F_2Reg_2imm5<type, op, funct, (outs GPROut:$ro), (ins RC:$ra, RC:$rb, Od:$imm5_2, Od:$imm5_1),
@@ -793,7 +718,7 @@ class bfst_fmt<bits<3> type, bits<3> op, bits<4> funct, string instr_asm, InstrI
   
 }
 
-def BFST : bfst_fmt<0x4, 0x6, 0x1, "bfst", ALU32_S_SLOT01, simm5, immSExt5,  CPURegs, 0>;
+def BFST : bfst_fmt<0x0, 0x6, 0x1, "bfst", ALU32_S_SLOT01, simm5, immSExt5,  CPURegs, 0>;
 
 class bst_fmt<bits<3> type, bits<3> op, bits<5> funct, string instr_asm, InstrItinClass itin, Operand Od, PatLeaf imm_type, RegisterClass RC, bit isComm = 0>:
 	F_1Reg_imm5<type, op, funct, (outs GPROut:$ra), (ins Od:$imm5),
@@ -802,7 +727,7 @@ class bst_fmt<bits<3> type, bits<3> op, bits<5> funct, string instr_asm, InstrIt
   
 }
 
-def BST : bfst_fmt<0x4, 0x6, 0x1, "bst", ALU32_S_SLOT01, simm5, immSExt5,  CPURegs, 0>;
+def BST : bfst_fmt<0x0, 0x6, 0x1, "bst", ALU32_S_SLOT01, simm5, immSExt5,  CPURegs, 0>;
 
 class bclr_fmt<bits<3> type, bits<3> op, bits<5> funct, string instr_asm, InstrItinClass itin, Operand Od, PatLeaf imm_type, RegisterClass RC, bit isComm = 0>:
 	F_1Reg_imm5<type, op, funct, (outs GPROut:$ra), (ins Od:$imm5),
@@ -811,7 +736,7 @@ class bclr_fmt<bits<3> type, bits<3> op, bits<5> funct, string instr_asm, InstrI
   
 }
 
-def BCLR : bfst_fmt<0x4, 0x6, 0x1, "bclr", ALU32_S_SLOT01, simm5, immSExt5,  CPURegs, 0>;
+def BCLR : bfst_fmt<0x0, 0x6, 0x1, "bclr", ALU32_S_SLOT01, simm5, immSExt5,  CPURegs, 0>;
 
 class veq40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
 	F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -820,7 +745,7 @@ class veq40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Instr
 
 	 }
 
-def veq_40 : veq40_fmt<4, 1, 0b00100001, "veq40", ALU32_V_SLOT01, VPR4Out>;
+def veq_40 : veq40_fmt<0, 1, 0b00100001, "veq40", ALU32_V_SLOT01, VPR4Out>;
 
 class veq_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -829,7 +754,7 @@ class veq_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def veq_20 : veq_20_fmt<4, 1, 0b00100010, "veq20", ALU32_V_SLOT01, VPR8Out>;
+  def veq_20 : veq_20_fmt<0, 1, 0b00100010, "veq20", ALU32_V_SLOT01, VPR8Out>;
 
   class veq_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -838,7 +763,7 @@ class veq_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def veq_10 : veq_10_fmt<4, 1, 0b00100011, "veq10", ALU32_V_SLOT01, VPR16Out>;
+  def veq_10 : veq_10_fmt<0, 1, 0b00100011, "veq10", ALU32_V_SLOT01, VPR16Out>;
 
   class vgt40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -847,7 +772,7 @@ class veq_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-def vgt_40 : vgt40_fmt<4, 1, 0b00100101, "vgt40", ALU32_V_SLOT01, VPR4Out>;
+def vgt_40 : vgt40_fmt<0, 1, 0b00100101, "vgt40", ALU32_V_SLOT01, VPR4Out>;
 
 class vgt_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -856,7 +781,7 @@ class vgt_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def vgt_20 : vgt_20_fmt<4, 1, 0b00100110, "vgt20", ALU32_V_SLOT01, VPR8Out>;
+  def vgt_20 : vgt_20_fmt<0, 1, 0b00100110, "vgt20", ALU32_V_SLOT01, VPR8Out>;
 
   class vgt_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -865,7 +790,7 @@ class vgt_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def vgt_10 : vgt_10_fmt<4, 1, 0b00100111, "vgt10", ALU32_V_SLOT01, VPR16Out>;
+  def vgt_10 : vgt_10_fmt<0, 1, 0b00100111, "vgt10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
   class vlt40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -874,7 +799,7 @@ class vgt_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-def vlt_40 : vlt40_fmt<4, 1, 0b00100001, "vlt40", ALU32_V_SLOT01, VPR4Out>;
+def vlt_40 : vlt40_fmt<0, 1, 0b00100001, "vlt40", ALU32_V_SLOT01, VPR4Out>;
 
 class vlt_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -883,7 +808,7 @@ class vlt_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def vlt_20 : vlt_20_fmt<4, 1, 0b00100010, "vlt20", ALU32_V_SLOT01, VPR8Out>;
+  def vlt_20 : vlt_20_fmt<0, 1, 0b00100010, "vlt20", ALU32_V_SLOT01, VPR8Out>;
 
   class vlt_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -892,7 +817,7 @@ class vlt_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def vlt_10 : vlt_10_fmt<4, 1, 0b00100011, "vlt10", ALU32_V_SLOT01, VPR16Out>;
+  def vlt_10 : vlt_10_fmt<0, 1, 0b00100011, "vlt10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
   class vge40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -901,7 +826,7 @@ class vlt_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-def vge_40 : vge40_fmt<4, 1, 0b00100001, "vge40", ALU32_V_SLOT01, VPR4Out>;
+def vge_40 : vge40_fmt<0, 1, 0b00100001, "vge40", ALU32_V_SLOT01, VPR4Out>;
 
 class vge_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -910,7 +835,7 @@ class vge_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def vge_20 : vge_20_fmt<4, 1, 0b00100010, "vge20", ALU32_V_SLOT01, VPR8Out>;
+  def vge_20 : vge_20_fmt<0, 1, 0b00100010, "vge20", ALU32_V_SLOT01, VPR8Out>;
 
   class vge_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -919,7 +844,7 @@ class vge_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def vge_10 : vge_10_fmt<4, 1, 0b00100011, "vge10", ALU32_V_SLOT01, VPR16Out>;
+  def vge_10 : vge_10_fmt<0, 1, 0b00100011, "vge10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
   class vle40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -928,7 +853,7 @@ class vge_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-def vle_40 : vle40_fmt<4, 1, 0b00100001, "vle40", ALU32_V_SLOT01, VPR4Out>;
+def vle_40 : vle40_fmt<0, 1, 0b00100001, "vle40", ALU32_V_SLOT01, VPR4Out>;
 
 class vle_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -937,7 +862,7 @@ class vle_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def vle_20 : vle_20_fmt<4, 1, 0b00100010, "vle20", ALU32_V_SLOT01, VPR8Out>;
+  def vle_20 : vle_20_fmt<0, 1, 0b00100010, "vle20", ALU32_V_SLOT01, VPR8Out>;
 
   class vle_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -946,7 +871,7 @@ class vle_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def vle_10 : vle_10_fmt<4, 1, 0b00100011, "vle10", ALU32_V_SLOT01, VPR16Out>;
+  def vle_10 : vle_10_fmt<0, 1, 0b00100011, "vle10", ALU32_V_SLOT01, VPR16Out>;
 
   //-----------------------------------------------------------------------------//
   class vadd40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
@@ -956,7 +881,7 @@ class vle_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-def vadd_40 : vadd40_fmt<4, 1, 0b00100001, "vadd40", ALU32_V_SLOT01, VPR4Out>;
+def vadd_40 : vadd40_fmt<0, 1, 0b00100001, "vadd40", ALU32_V_SLOT01, VPR4Out>;
 
 class vadd_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -965,7 +890,7 @@ class vadd_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vadd_20 : vadd_20_fmt<4, 1, 0b00100010, "vadd20", ALU32_V_SLOT01, VPR8Out>;
+  def vadd_20 : vadd_20_fmt<0, 1, 0b00100010, "vadd20", ALU32_V_SLOT01, VPR8Out>;
 
   class vadd_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -974,7 +899,7 @@ class vadd_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vadd_10 : vadd_10_fmt<4, 1, 0b00100011, "vadd10", ALU32_V_SLOT01, VPR16Out>;
+  def vadd_10 : vadd_10_fmt<0, 1, 0b00100011, "vadd10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
   class vsub40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -983,7 +908,7 @@ class vadd_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-def vsub_40 : vsub40_fmt<4, 1, 0b00100001, "vsub40", ALU32_V_SLOT01, VPR4Out>;
+def vsub_40 : vsub40_fmt<0, 1, 0b00100001, "vsub40", ALU32_V_SLOT01, VPR4Out>;
 
 class vsub_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -992,7 +917,7 @@ class vsub_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vsub_20 : vsub_20_fmt<4, 1, 0b00100010, "vsub20", ALU32_V_SLOT01, VPR8Out>;
+  def vsub_20 : vsub_20_fmt<0, 1, 0b00100010, "vsub20", ALU32_V_SLOT01, VPR8Out>;
 
   class vsub_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1001,7 +926,7 @@ class vsub_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vsub_10 : vsub_10_fmt<4, 1, 0b00100011, "vsub10", ALU32_V_SLOT01, VPR16Out>;
+  def vsub_10 : vsub_10_fmt<0, 1, 0b00100011, "vsub10", ALU32_V_SLOT01, VPR16Out>;
 
 
 
@@ -1014,7 +939,7 @@ class vsub_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-def vsl_40 : vsl40_fmt<4, 1, 0b00100001, "vsl40", ALU32_V_SLOT01, VPR4Out>;
+def vsl_40 : vsl40_fmt<0, 1, 0b00100001, "vsl40", ALU32_V_SLOT01, VPR4Out>;
 
 class vsl_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1023,7 +948,7 @@ class vsl_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def vsl_20 : vsl_20_fmt<4, 1, 0b00100010, "vsl20", ALU32_V_SLOT01, VPR8Out>;
+  def vsl_20 : vsl_20_fmt<0, 1, 0b00100010, "vsl20", ALU32_V_SLOT01, VPR8Out>;
 
   class vsl_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1032,7 +957,7 @@ class vsl_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-  def vsl_10 : vsl_10_fmt<4, 1, 0b00100011, "vsl10", ALU32_V_SLOT01, VPR16Out>;
+  def vsl_10 : vsl_10_fmt<0, 1, 0b00100011, "vsl10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
   class vsls40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1041,7 +966,7 @@ class vsl_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-def vsls_40 : vsls40_fmt<4, 1, 0b00100001, "vsls40", ALU32_V_SLOT01, VPR4Out>;
+def vsls_40 : vsls40_fmt<0, 1, 0b00100001, "vsls40", ALU32_V_SLOT01, VPR4Out>;
 
 class vsls_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1050,7 +975,7 @@ class vsls_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vsls_20 : vsls_20_fmt<4, 1, 0b00100010, "vsls20", ALU32_V_SLOT01, VPR8Out>;
+  def vsls_20 : vsls_20_fmt<0, 1, 0b00100010, "vsls20", ALU32_V_SLOT01, VPR8Out>;
 
   class vsls_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1059,7 +984,7 @@ class vsls_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vsls_10 : vsls_10_fmt<4, 1, 0b00100011, "vsls10", ALU32_V_SLOT01, VPR16Out>;
+  def vsls_10 : vsls_10_fmt<0, 1, 0b00100011, "vsls10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
   class vsra40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1068,7 +993,7 @@ class vsls_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-def vsra_40 : vsra40_fmt<4, 1, 0b00100001, "vsra40", ALU32_V_SLOT01, VPR4Out>;
+def vsra_40 : vsra40_fmt<0, 1, 0b00100001, "vsra40", ALU32_V_SLOT01, VPR4Out>;
 
 class vsra_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1077,7 +1002,7 @@ class vsra_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vsra_20 : vsra_20_fmt<4, 1, 0b00100010, "vsra20", ALU32_V_SLOT01, VPR8Out>;
+  def vsra_20 : vsra_20_fmt<0, 1, 0b00100010, "vsra20", ALU32_V_SLOT01, VPR8Out>;
 
   class vsra_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1086,7 +1011,7 @@ class vsra_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vsra_10 : vsra_10_fmt<4, 1, 0b00100011, "vsra10", ALU32_V_SLOT01, VPR16Out>;
+  def vsra_10 : vsra_10_fmt<0, 1, 0b00100011, "vsra10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
   class vsrl40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1095,7 +1020,7 @@ class vsra_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-def vsrl_40 : vsrl40_fmt<4, 1, 0b00100001, "vsrl.40", ALU32_V_SLOT01, VPR4Out>;
+def vsrl_40 : vsrl40_fmt<0, 1, 0b00100001, "vsrl.40", ALU32_V_SLOT01, VPR4Out>;
 
 class vsrl_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1104,7 +1029,7 @@ class vsrl_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vsrl_20 : vsrl_20_fmt<4, 1, 0b00100010, "vsrl20", ALU32_V_SLOT01, VPR8Out>;
+  def vsrl_20 : vsrl_20_fmt<0, 1, 0b00100010, "vsrl20", ALU32_V_SLOT01, VPR8Out>;
 
   class vsrl_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1113,7 +1038,7 @@ class vsrl_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vsrl_10 : vsrl_10_fmt<4, 1, 0b00100011, "vsrl10", ALU32_V_SLOT01, VPR16Out>;
+  def vsrl_10 : vsrl_10_fmt<0, 1, 0b00100011, "vsrl10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
   class vabs40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_2Reg_2<type, op, funct, (outs RC:$ra), (ins RC:$rb),
@@ -1122,7 +1047,7 @@ class vsrl_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-def vabs_40 : vabs40_fmt<4, 1, 0b00100001, "vabs40", ALU32_V_SLOT01, VPR4Out>;
+def vabs_40 : vabs40_fmt<0, 1, 0b00100001, "vabs40", ALU32_V_SLOT01, VPR4Out>;
 
 class vabs_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_2Reg_2<type, op, funct, (outs RC:$ra), (ins RC:$rb),
@@ -1131,7 +1056,7 @@ class vabs_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vabs_20 : vabs_20_fmt<4, 1, 0b00100010, "vabs20", ALU32_V_SLOT01, VPR8Out>;
+  def vabs_20 : vabs_20_fmt<0, 1, 0b00100010, "vabs20", ALU32_V_SLOT01, VPR8Out>;
 
   class vabs_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_2Reg_2<type, op, funct, (outs RC:$ra), (ins RC:$rb),
@@ -1140,7 +1065,7 @@ class vabs_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vabs_10 : vabs_10_fmt<4, 1, 0b00100011, "vabs10", ALU32_V_SLOT01, VPR16Out>;
+  def vabs_10 : vabs_10_fmt<0, 1, 0b00100011, "vabs10", ALU32_V_SLOT01, VPR16Out>;
 
 class vsum40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_2Reg_2<type, op, funct, (outs RC:$ra), (ins RC:$rb),
@@ -1149,7 +1074,7 @@ class vsum40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Inst
 
    }
 
-def vsum_40 : vsum40_fmt<4, 1, 0b00100001, "vsum40", ALU32_V_SLOT01, VPR4Out>;
+def vsum_40 : vsum40_fmt<0, 1, 0b00100001, "vsum40", ALU32_V_SLOT01, VPR4Out>;
 
 class vsum_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_2Reg_2<type, op, funct, (outs RC:$ra), (ins RC:$rb),
@@ -1158,7 +1083,7 @@ class vsum_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vsum_20 : vsum_20_fmt<4, 1, 0b00100010, "vsum20", ALU32_V_SLOT01, VPR8Out>;
+  def vsum_20 : vsum_20_fmt<0, 1, 0b00100010, "vsum20", ALU32_V_SLOT01, VPR8Out>;
 
   class vsum_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_2Reg_2<type, op, funct, (outs RC:$ra), (ins RC:$rb),
@@ -1167,7 +1092,7 @@ class vsum_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-  def vsum_10 : vsum_10_fmt<4, 1, 0b00100011, "vsum10", ALU32_V_SLOT01, VPR16Out>;
+  def vsum_10 : vsum_10_fmt<0, 1, 0b00100011, "vsum10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
   class vfmul40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1176,7 +1101,7 @@ class vsum_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, Ins
 
    }
 
-def vfmul_40 : vfmul40_fmt<4, 1, 0b00100001, "vfmul40", ALU32_V_SLOT01, VPR4Out>;
+def vfmul_40 : vfmul40_fmt<0, 1, 0b00100001, "vfmul40", ALU32_V_SLOT01, VPR4Out>;
 
 class vfmul_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1185,7 +1110,7 @@ class vfmul_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, In
 
    }
 
-  def vfmul_20 : vfmul_20_fmt<4, 1, 0b00100010, "vfmul20", ALU32_V_SLOT01, VPR8Out>;
+  def vfmul_20 : vfmul_20_fmt<0, 1, 0b00100010, "vfmul20", ALU32_V_SLOT01, VPR8Out>;
 
   class vfmul_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1194,7 +1119,7 @@ class vfmul_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, In
 
    }
 
-  def vfmul_10 : vfmul_10_fmt<4, 1, 0b00100011, "vfmul10", ALU32_V_SLOT01, VPR16Out>;
+  def vfmul_10 : vfmul_10_fmt<0, 1, 0b00100011, "vfmul10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
   class vfmac40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$dst, RC:$rb, RC:$rc),
@@ -1203,7 +1128,7 @@ class vfmul_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, In
 	 let Constraints = "$ra = $dst";
    }
 
-def vfmac_40 : vfmac40_fmt<4, 1, 0b00100001, "vfmac40", ALU32_V_SLOT01, VPR4Out>;
+def vfmac_40 : vfmac40_fmt<0, 1, 0b00100001, "vfmac40", ALU32_V_SLOT01, VPR4Out>;
 
 class vfmac_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1212,7 +1137,7 @@ class vfmac_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, In
 
    }
 
-  def vfmac_20 : vfmac_20_fmt<4, 1, 0b00100010, "vfmac20", ALU32_V_SLOT01, VPR8Out>;
+  def vfmac_20 : vfmac_20_fmt<0, 1, 0b00100010, "vfmac20", ALU32_V_SLOT01, VPR8Out>;
 
   class vfmac_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1221,7 +1146,7 @@ class vfmac_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, In
 
    }
 
-  def vfmac_10 : vfmac_10_fmt<4, 1, 0b00100011, "vfmac10", ALU32_V_SLOT01, VPR16Out>;
+  def vfmac_10 : vfmac_10_fmt<0, 1, 0b00100011, "vfmac10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
 class vcmac_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1230,7 +1155,7 @@ class vcmac_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, In
 
    }
 
-  def vcmac_20 : vcmac_20_fmt<4, 1, 0b00100010, "vcmac20", ALU32_V_SLOT01, VPR8Out>;
+  def vcmac_20 : vcmac_20_fmt<0, 1, 0b00100010, "vcmac20", ALU32_V_SLOT01, VPR8Out>;
 
   class vcmac_10_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1239,7 +1164,7 @@ class vcmac_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, In
 
    }
 
-  def vcmac_10 : vcmac_10_fmt<4, 1, 0b00100011, "vcmac10", ALU32_V_SLOT01, VPR16Out>;
+  def vcmac_10 : vcmac_10_fmt<0, 1, 0b00100011, "vcmac10", ALU32_V_SLOT01, VPR16Out>;
   //-----------------------------------------------------------------------------//
 
 class vcmul_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
@@ -1249,7 +1174,7 @@ class vcmul_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, In
 
    }
 
-  def vcmul_20 : vcmul_20_fmt<4, 1, 0b00100010, "vcmul20", ALU32_V_SLOT01, VPR8Out>;
+  def vcmul_20 : vcmul_20_fmt<0, 1, 0b00100010, "vcmul20", ALU32_V_SLOT01, VPR8Out>;
 
     class vcmulr40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1258,7 +1183,7 @@ class vcmul_20_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, In
 
    }
 
-def vcmulr_40 : vcmulr40_fmt<4, 1, 0b00100001, "vcmulr40", ALU32_V_SLOT01, VPR4Out>;
+def vcmulr_40 : vcmulr40_fmt<0, 1, 0b00100001, "vcmulr40", ALU32_V_SLOT01, VPR4Out>;
 
     class vcmuli40_fmt<bits<3> type, bits<3> op, bits<8> funct, string instr_asm, InstrItinClass itin, RegisterClass RC>:
   F_3Reg_001<type, op, funct, (outs RC:$ra), (ins RC:$rb, RC:$rc),
@@ -1267,7 +1192,7 @@ def vcmulr_40 : vcmulr40_fmt<4, 1, 0b00100001, "vcmulr40", ALU32_V_SLOT01, VPR4O
 
    }
 
-def vcmuli_40 : vcmuli40_fmt<4, 1, 0b00100001, "vcmuli40", ALU32_V_SLOT01, VPR4Out>;
+def vcmuli_40 : vcmuli40_fmt<0, 1, 0b00100001, "vcmuli40", ALU32_V_SLOT01, VPR4Out>;
 
 class vloadr8_fmt<bits<3> type, bits<3> op, bits<5> funct, string instr_asm, InstrItinClass itin, RegisterClass RD, RegisterClass RS, Operand Od, PatLeaf imm_type>:
   F_LS_2Reg_imm9<type, op, funct, (outs RD:$ra), (ins RS:$rb, Od:$imm9),

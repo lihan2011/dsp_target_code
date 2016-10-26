@@ -15,9 +15,8 @@
 
 
 
-
 def FeatureO32          : SubtargetFeature<"o32", "DSPABI", "O32",
-                                "Enable o32 ABI">;
+                               "Enable o32 ABI">;
 
 def FeatureDSPSE		:SubtargetFeature<"dspse", "DSPArchVersion",
 											"DSPSE","DSP 1.0 version">;

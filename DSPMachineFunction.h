@@ -104,7 +104,7 @@ namespace llvm {
 		virtual void  anchor();
 		MachineFunction& MF;
 
-		/// VarArgsFrameIndex - FrameIndex for start of varargs area.
+		/// VarArgsFrameIndex - FrameIndex for start of var args area.
 		int VarArgsFrameIndex;
 		unsigned MaxCallFrameSize;
 		/// True if function has a byval argument.

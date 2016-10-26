@@ -36,9 +36,9 @@ void DSPInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
 }
 
 void DSPInstPrinter::printRegName(const MCInst *MI, raw_ostream &OS, unsigned RegNo) const {
-	if (MI->getOpcode() == DSP::Ret || MI->getOpcode() == DSP::RetLR)
+	/*if (MI->getOpcode() == DSP::Ret || MI->getOpcode() == DSP::RetLR)
 		OS << "";
-	else
+	else*/
 		printRegName(OS, RegNo);
 
 }
@@ -137,7 +137,7 @@ printMemOperand(const MCInst *MI, int opNum, raw_ostream &O) {
 	MCOperand MO = MI->getOperand(opNum + 1);
 	int Offset = 0;
 	if (MO.isImm())
-		Offset= (MO.getImm() >> 2);
+		Offset=(MO.getImm() >> 2);
 	else
 		assert("wrong offset");
 	std::cout << Offset << std::endl;

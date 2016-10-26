@@ -21,15 +21,15 @@
 namespace llvm {
 	class MCOperand;
 	class DSPMCInst : public  MCInst {
-
 		const MCInstrDesc *MCID;
-		 unsigned FuncUnits;
+		unsigned FuncUnits;
 		unsigned packetStart : 1, packetEnd : 1;
+		const llvm::InstrStage *IS;
+		uint32_t pos_slot;
 	public:
-		explicit DSPMCInst() :MCInst(), MCID(nullptr), packetStart(0), packetEnd(0),FuncUnits(0){};
+		explicit DSPMCInst() :MCInst(), MCID(nullptr), packetStart(0), packetEnd(0),FuncUnits(0),IS(nullptr),pos_slot(0){};
 		DSPMCInst(const MCInstrDesc &mcid) :
 			MCInst(), MCID(&mcid), packetStart(0), packetEnd(0),FuncUnits(0){};
-
 		bool isPacketStart() const{ return (packetStart); };
 		bool isPacketEnd() const{ return (packetEnd); };
 		void  setPacketStart(bool Y) { packetStart = Y; };
@@ -43,6 +43,19 @@ namespace llvm {
 		// Return the DSP ISA class for the insn.
 		unsigned getType() const;
 
+		void setIS(const llvm::InstrStage *IS){
+			this->IS = IS;
+		}
+
+		const llvm::InstrStage* getIS(){
+			return this->IS;
+		}
+		void setPos(unsigned pos){
+			pos_slot = pos;
+		}
+		unsigned int  getPos(){
+			return pos_slot;
+		}
 		void setDesc(const MCInstrDesc& mcid) { MCID = &mcid; };
 
 		const MCInstrDesc& getDesc(void) const { return *MCID; };
@@ -73,6 +86,7 @@ namespace llvm {
 
 		// Return number of bits in the constant extended operand.
 		unsigned getBitCount(void) const;
+
 
 	private:
 		// Return whether the instruction must be always extended.

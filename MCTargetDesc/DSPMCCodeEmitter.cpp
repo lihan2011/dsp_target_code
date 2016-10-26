@@ -11,6 +11,8 @@
 ////===----------------------------------------------------------------------===//
 //
 #include "DSPMCCodeEmitter.h"
+#include "DSPVLIWBundler.h"
+#include "DSPMCInst.h"
 #include "MCTargetDesc/DSPBaseInfo.h"
 #include "MCTargetDesc/DSPFixupKinds.h"
 #include "MCTargetDesc/DSPMCTargetDesc.h"
@@ -22,6 +24,7 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/raw_ostream.h"
 #include <iostream>
+#include <memory>
 using namespace llvm;
 
 
@@ -30,7 +33,10 @@ using namespace llvm;
 #define GET_INSTRMAP_INFO
 #include "DSPGenInstrInfo.inc"
 #undef GET_INSTRMAP_INFO
-
+DSPMCCodeEmitter::~DSPMCCodeEmitter(){
+	std::cout << "delete Bundler" << std::endl;
+	delete DSPVLIWBundler::getBundler();
+}
 MCCodeEmitter *llvm::createDSPMCCodeEmitterEB(const MCInstrInfo &MCII,
 	const MCRegisterInfo &MRI,
 	const MCSubtargetInfo &STI,
@@ -66,17 +72,17 @@ const MCSubtargetInfo &STI) const
 {
 	//std::cout <<std::hex << getBinaryCodeForInstr(MI, Fixups, STI);
 	uint32_t Binary = getBinaryCodeForInstr(MI, Fixups, STI);
-	std::cout <<"binary£¡£¡"<< std::hex <<Binary << std::endl;
+	//std::cout <<"binary£¡£¡"<< std::hex <<Binary << std::endl;
 	// Check for unimplemented opcodes.
-	// Unfortunately in DSP both NOT and SLL will come in with Binary == 0
-	// so we have to special check for them.
 	unsigned Opcode = MI.getOpcode();
-
-
+	DSPMCInst *MCI = (DSPMCInst*)(&MI);
+	DSPVLIWBundler::getBundler()->PerformBundle(MCI,&Binary);
+	//std::cout << "binary£¡£¡" << std::hex << Binary << std::endl;
 	if ((Opcode != DSP::NOP) && (Opcode != DSP::SHL)&&(Opcode!=DSP::Jmp) && !Binary)
 		llvm_unreachable("unimplemented opcode in EncodeInstruction()");
 	const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
 	uint64_t TSFlags = Desc.TSFlags;
+
 	//std::cout << "TS Flag is" << TSFlags << std::endl;
 	// Pseudo instructions don¡¯t get encoded and shouldn¡¯t be here
 	// in the first place!
@@ -171,7 +177,7 @@ const MCSubtargetInfo &STI) const {
 	}*/
 	assert(Kind == MCExpr::SymbolRef);
 	// All of the information is in the fixup.
-	std::cout << "Kind" << Kind << std::endl;
+	//std::cout << "Kind" << Kind << std::endl;
 
 	DSP::Fixups FixupKind = DSP::Fixups(0);
 

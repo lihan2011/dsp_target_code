@@ -151,7 +151,7 @@ const MCSection *DSPTargetObjectFile::getSectionForConstant(SectionKind Kind, co
 				unsigned Type = ELF::SHT_PROGBITS;
 				unsigned Flags = ELF::SHF_ALLOC|ELF::SHF_WRITE|ELF::SHF_MERGE;
 				//unsigned EntrySize =0;
-				return getContext().getELFSection(".rdata", Type, Flags, Kind, 0, COMDATSymName);
+				return getContext().getELFSection(".rodata", Type, Flags, Kind, 0, COMDATSymName);
 			}
 		}	
 	}

@@ -23,6 +23,7 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/Debug.h"
 #include <iostream>
 
@@ -52,8 +53,6 @@ static void CreateMCInst(MCInst &Inst, unsigned Opc, const MCOperand &Opnd0,
 MCOperand DSPMCInstLower::LowerOperand(const MachineOperand &MO, unsigned offset)const {
 
 	MachineOperandType MOTy = MO.getType();
-	//std::cout << MOTy << std::endl;
-	//std::cout << offset << std::endl;
 	switch (MOTy)
 	{
 	default:llvm_unreachable("unknown operand type");
@@ -79,7 +78,6 @@ MCOperand DSPMCInstLower::LowerOperand(const MachineOperand &MO, unsigned offset
 		return LowerSymbolOperand(MO, MOTy, offset);
 	case MachineOperand::MO_JumpTableIndex:
 		return LowerSymbolOperand(MO, MOTy, offset);
-
 
 	}
 
@@ -137,6 +135,7 @@ void DSPMCInstLower::LowerCPLOAD(SmallVector<MCInst, 4>& MCInsts) {
 MCOperand DSPMCInstLower::LowerSymbolOperand(const MachineOperand &MO, MachineOperandType MOTy, unsigned Offset) const {
 	MCSymbolRefExpr::VariantKind Kind;
 	const MCSymbol *Symbol;
+		
 	switch (MO.getTargetFlags())
 	{
 	default:llvm_unreachable("Invalid target flag!");
@@ -151,11 +150,16 @@ MCOperand DSPMCInstLower::LowerSymbolOperand(const MachineOperand &MO, MachineOp
 	case DSPII::MO_GOT_LO16:  Kind = MCSymbolRefExpr::VK_DSP_GOT_LO16; break;
 	}
 	switch (MOTy){
+	case MachineOperand::MO_MachineBasicBlock:
+		Symbol = MO.getMBB()->getSymbol();
+		break;
 	case MachineOperand::MO_GlobalAddress:
 		Symbol = AsmPrinter.getSymbol(MO.getGlobal());
+		Offset += MO.getOffset();
 		break;
 	case MachineOperand::MO_ConstantPoolIndex:
 		Symbol = AsmPrinter.GetCPISymbol(MO.getIndex());
+		Offset = MO.getOffset();
 		break;
 	case MachineOperand::MO_BlockAddress:
 		Symbol = AsmPrinter.GetBlockAddressSymbol(MO.getBlockAddress());
@@ -164,9 +168,7 @@ MCOperand DSPMCInstLower::LowerSymbolOperand(const MachineOperand &MO, MachineOp
 	case MachineOperand::MO_JumpTableIndex:
 		Symbol = AsmPrinter.GetJTISymbol(MO.getIndex());
 		break;
-	case MachineOperand::MO_MachineBasicBlock:
-		Symbol = MO.getMBB()->getSymbol();
-		break;
+
 	case MachineOperand::MO_ExternalSymbol:
 		Symbol = AsmPrinter.GetExternalSymbolSymbol(MO.getSymbolName());
 		Offset += MO.getOffset();
@@ -174,11 +176,13 @@ MCOperand DSPMCInstLower::LowerSymbolOperand(const MachineOperand &MO, MachineOp
 	default:
 		llvm_unreachable("<unknown operand type>"); break;
 	}
+	//std::cout << Symbol->getName().str() <<" offset"<<Offset<< std::endl;
 	const MCSymbolRefExpr *MCSym = MCSymbolRefExpr::Create(Symbol, Kind, *Ctx);
 
 	if (!Offset)
 		return MCOperand::CreateExpr(MCSym);
 	assert(Offset > 0);
+	//MCConstantExpr - Represent a constant integer expression.
 	const MCConstantExpr *OffsetExpr = MCConstantExpr::Create(Offset, *Ctx);
 	const MCBinaryExpr *AddExpr = MCBinaryExpr::CreateAdd(MCSym, OffsetExpr, *Ctx);
 	return MCOperand::CreateExpr(AddExpr);

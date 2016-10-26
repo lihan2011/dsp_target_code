@@ -71,7 +71,7 @@ namespace llvm {
 		};
 
 		// MCInstrDesc TSFlags
-		// *** Must match HexagonInstrFormat*.td ***
+		// *** Must match DSPInstrFormat*.td ***
 		enum {
 			// This 5-bit field describes the insn type.
 			TypePos = 0,
@@ -155,7 +155,14 @@ namespace llvm {
 
 			// Floating-point instructions.
 			FPPos = 48,
-			FPMask = 0x1
+			FPMask = 0x1,
+			//using which slot
+			SlotPos = 49,
+			SlotMask = 0x3,
+
+			//is a VLIW start or not
+			StartPos = 50,
+			StartMask = 0x1
 		};
 	}
 		inline static unsigned getDSPRegisterNumbering(unsigned RegEnum){

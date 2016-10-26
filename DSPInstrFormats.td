@@ -20,9 +20,20 @@ def Frm14      : Format<14>;
 def FrmOther : Format<15>; // Instruction w/a custom format
 def FrmENDLOOP :Format<31>;
 
+class OpFormat<bits<3> Op>{
+	bits<3> Value = Op;
+}
 
+def defaultOp : OpFormat<7>;
 
+class SlotMode<bits<2> value>{
+	bits<2> Value = value;
+}
 
+def Slot0 :SlotMode<0>;
+def Slot1 :SlotMode<1>;
+def Slot2 :SlotMode<2>;
+def Slot3 :SlotMode<3>;
 
 
 class InstDSP<dag outs, dag ins, string asmstr, list<dag> pattern,InstrItinClass itin>
@@ -43,6 +54,88 @@ class InstDSP<dag outs, dag ins, string asmstr, list<dag> pattern,InstrItinClass
   let Pattern = pattern;
   let Itinerary = itin;
 
+  // *** Must match MCTargetDesc/HexagonBaseInfo.h ***
+
+  // Instruction type according to the ISA.
+  //IType Type = type;
+  bits<5> Type = 0;
+  let TSFlags{4-0} = Type;
+
+  // Solo instructions, i.e., those that cannot be in a packet with others.
+  bits<1> isSolo = 0;
+  let TSFlags{5} = isSolo;
+  // Packed only with A or X-type instructions.
+  bits<1> isSoloAX = 0;
+  let TSFlags{6} = isSoloAX;
+  // Only A-type instruction in first slot or nothing.
+  bits<1> isSoloAin1 = 0;
+  let TSFlags{7} = isSoloAin1;
+
+  // Predicated instructions.
+  bits<1> isPredicated = 0;
+  let TSFlags{8} = isPredicated;
+  bits<1> isPredicatedFalse = 0;
+  let TSFlags{9} = isPredicatedFalse;
+  bits<1> isPredicatedNew = 0;
+  let TSFlags{10} = isPredicatedNew;
+  bits<1> isPredicateLate = 0;
+  let TSFlags{11} = isPredicateLate; // Late predicate producer insn.
+
+  // New-value insn helper fields.
+  bits<1> isNewValue = 0;
+  let TSFlags{12} = isNewValue; // New-value consumer insn.
+  bits<1> hasNewValue = 0;
+  let TSFlags{13} = hasNewValue; // New-value producer insn.
+  bits<3> opNewValue = 0;
+  let TSFlags{16-14} = opNewValue; // New-value produced operand.
+  bits<1> isNVStorable = 0;
+  let TSFlags{17} = isNVStorable; // Store that can become new-value store.
+  bits<1> isNVStore = 0;
+  let TSFlags{18} = isNVStore; // New-value store insn.
+  bits<1> isCVLoadable = 0;
+  let TSFlags{19} = isCVLoadable; // Load that can become cur-value load.
+  bits<1> isCVLoad = 0;
+  let TSFlags{20} = isCVLoad; // Cur-value load insn.
+
+  // Immediate extender helper fields.
+  bits<1> isExtendable = 0;
+  let TSFlags{21} = isExtendable; // Insn may be extended.
+  bits<1> isExtended = 0;
+  let TSFlags{22} = isExtended; // Insn must be extended.
+  bits<3> opExtendable = 0;
+  let TSFlags{25-23} = opExtendable; // Which operand may be extended.
+  bits<1> isExtentSigned = 0;
+  let TSFlags{26} = isExtentSigned; // Signed or unsigned range.
+  bits<5> opExtentBits = 0;
+  let TSFlags{31-27} = opExtentBits; //Number of bits of range before extending.
+  bits<2> opExtentAlign = 0;
+  let TSFlags{33-32} = opExtentAlign; // Alignment exponent before extending.
+
+  // If an instruction is valid on a subtarget (v2-v5), set the corresponding
+  // bit from validSubTargets. v2 is the least significant bit.
+  // By default, instruction is valid on all subtargets.
+  bits<4> validSubTargets =0xf ;
+  let TSFlags{37-34} = validSubTargets;
+
+  // Addressing mode for load/store instructions.
+  bits<3> addrMode = 0;
+  let TSFlags{42-40} = addrMode;
+
+  // Memory access size for mem access instructions (load/store)
+  bits<3> accessSize = 0;
+  let TSFlags{45-43} = accessSize;
+
+  bits<1> isTaken = 0;
+  let TSFlags {47} = isTaken; // Branch prediction.
+
+  bits<1> isFP = 0;
+  let TSFlags {48} = isFP; // Floating-point.
+
+  SlotMode Slots = Slot3;
+  let TSFlags{49-50} = Slots.Value;
+
+  bits<1> Start = 1;
+  let TSFlags{51} = Start;
 
   let DecoderNamespace = "DSP";
   field bits<32> SoftFail = 0;
@@ -186,20 +279,7 @@ class R4i2<bits<3>typecode, bits<3>opcode,bits<2> inner_op, dag outs, dag ins, s
 
 
 
-  /*==============================================
-     typecode|opcode|imm|rs|rt|inner_op<5>  test instruction
-  ==============================================*/
-class R2i5T<bits<3>typecode,bits<3>opcode,bits<5> inner_op, dag outs, dag ins, string asmstr, list<dag> pattern, InstrItinClass itin>
-   :InstDSP<outs, ins, asmstr, pattern,  itin>{
-  bits<6> rs;
-  bits<6> rt;
-  bits<9> imm;
-  let Inst{25-17}=imm;
-  let Inst{16-11}=rs;
-  let Inst{10-5}=rt;
-  let Inst{4-0}=inner_op;
-  }
-  
+
   
   //===----------------------------------------------------------------------===//
 // For NOP RET RTT SYNCH 
@@ -358,7 +438,7 @@ class F_2Reg<bits<3> type,bits<3> op, bits<8> funct, dag outs, dag ins, string a
 }
 //===----------------------------------------------------------------------===//
 //For NOT, ABS, CBW, CHW, MOV.G2V, VMOVR.G2V.10, VMOVR.G2V.20, VMOVR.G2V.40
-//    MOV.V2V, VNOT, VABS.10, VSUM.10, VABS.20, VSUM.20, VABS.40, VSUM.40
+//    MOV.V2V, VNOT, VABS.10, VSUM.10, VABS.20, VSUM.20, VABS.40, VSUM.40, MOV.G2G
 //===----------------------------------------------------------------------===//
 
 class F_2Reg_2<bits<3> type,bits<3> op, bits<8> funct, dag outs, dag ins, string asmstr,

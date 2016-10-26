@@ -31,7 +31,7 @@ using namespace llvm;
 static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
 	MCContext *Ctx = nullptr) {
 	unsigned Kind = Fixup.getKind();
-	std::cout << "value" << Value << std::endl;
+	//std::cout << "value" << Value << std::endl;
 
 	// Add/subtract and shift
 	switch (Kind) {
@@ -125,7 +125,7 @@ void DSPAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 	//std::cout << Value << std::endl;
 	//std::cout << "mask" << Mask << std::endl;
 	CurVal |= Value & Mask;
-	std::cout << CurVal << std::endl;
+	//std::cout << CurVal << std::endl;
 	// Write out the fixed up bytes back to the code/data bits.
 	for (unsigned i = 0; i != NumBytes; ++i) {
 		unsigned Idx = IsLittle ? i : (FullSize - 1 - i);
