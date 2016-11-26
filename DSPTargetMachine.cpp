@@ -15,12 +15,15 @@
 #include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/CommandLine.h"
 using namespace llvm;
 #define DEBUG_TYPE "dsp"
 extern "C" void LLVMInitializeDSPTarget() {
 	//- Little endian Target Machine
 	RegisterTargetMachine<DSPelTargetMachine> X(TheDSPelTarget);
 }
+
+extern cl::opt<bool> EnableSwPipeline;
 
 // DataLayout --> Big-endian, 32-bit pointer/ABI/alignment
 // The stack is always 8 byte aligned
@@ -72,9 +75,7 @@ namespace {
 		}
 
 		virtual bool addInstSelector();
-#ifdef ENABLE_GPRESTORE
-		virtual bool addPreRegAlloc();
-#endif
+		//virtual bool addPreRegAlloc();
 		virtual bool addPreEmitPass();
 
 	};
@@ -86,15 +87,19 @@ bool DSPPassConfig::addInstSelector(){
 	addPass(createDSPISelDag(getDSPTargetMachine()));
 	return false;
 }
-#ifdef ENABLE_GPRESTORE
-bool DSPPassConfig::addPreRegAlloc() {
-	if (!DSPReserveGP) {
+
+/*bool DSPPassConfig::addPreRegAlloc() {
+	/*if (!DSPReserveGP) {
 		// $gp is a caller-saved register.
 		addPass(createDSPEmitGPRestorePass(getDSPTargetMachine()));
 	}
+	if (EnableSwPipeline)
+	{
+		addPass(createLoopPipelinePass());
+	}
 	return true;
-}
-#endif
+}*/
+
 
 bool DSPPassConfig::addPreEmitPass() {
 	DSPTargetMachine &TM = getDSPTargetMachine();

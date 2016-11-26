@@ -207,11 +207,11 @@ def immZExt5 : ImmLeaf<i32, [{return Imm == (Imm & 0x1f);}]>;
 
 class shift_rotate_imm<bits<3> typeop,bits <3> op,bits<8> inner_op, bits<4> isRotate, string instr_asm,
 SDNode OpNode, PatFrag PF, Operand ImmOpnd,
-RegisterClass RC>:
-R3<typeop,op,inner_op, (outs GPROut:$ra), (ins RC:$rb, ImmOpnd:$shamt),
+RegisterClass RC, bit isAlu = 0>:
+F_3Reg_001<typeop,op,inner_op, (outs GPROut:$ra), (ins RC:$rb, ImmOpnd:$shamt),
 !strconcat(instr_asm, "\t$ra, $rb, $shamt"),
 [(set GPROut:$ra, (OpNode RC:$rb, PF:$shamt))], ALU32_S_SLOT01> {
-let rt = 0;
+let rc = 0;
 }
 
 class shift_rotate_reg<bits<3> typeop,bits <3> op,bits<8> inner_op, bits<4> isRotate, string instr_asm,
@@ -240,11 +240,12 @@ let isReMaterializable = 1;
 
 // Arithmetic and logical instructions with 3 register operands.
 class ArithLogicR<bits<3> typeop, bits<3> op, bits<8> inner_op,string instr_asm, SDNode OpNode,
-InstrItinClass itin, RegisterClass RC, bit isComm = 0>:
+InstrItinClass itin, RegisterClass RC, bit isComm = 0,bit isAlu = 1>:
 F_3Reg_001<typeop,op,inner_op, (outs GPROut:$ra), (ins RC:$rb, RC:$rc),
 !strconcat(instr_asm, "\t$ra, $rb, $rc"),
 [(set GPROut:$ra, (OpNode RC:$rb, RC:$rc))], itin> {
 let isCommutable = isComm; // e.g. add rb rc = add rc rb
+let TSFlags{52} = isAlu;
 let isReMaterializable = 1;
 }
 
@@ -330,6 +331,7 @@ F_1Reg_imm16<typeop, op, inner_op,(outs GPROut:$ra), (ins RC:$rb,simm16:$imm16),
 !strconcat(instr_asm, "\t$ra,$imm16"),[],itin>{
 bits<16> imm16;
 let Inst{19-4} = imm16;
+//let Constraints = "$ra = $rb";
 }
 
 
@@ -403,6 +405,7 @@ class SetCC_R<bits<3> typeop,bits<3> op, bits<8> inner_op, string instr_asm, Pat
 !strconcat(instr_asm, "\t $rb, $rc"),
 [(set GPROut:$ra, (cond_op RC:$rb, RC:$rc))],ALU32_S_SLOT01>{
 let Inst{25-20} = 0b000000;
+let TSFlags{52} = 1;
 let isCommutable = 0;
 }
 
@@ -410,6 +413,7 @@ class SetCC_RI<bits<3> typeop,bits<3> op, bits<5> inner_op, string instr_asm, Pa
 :F_1Reg_imm9<typeop,op,inner_op,(outs GPROut:$rs), (ins RC:$ra, simm16:$imm9),
 !strconcat(instr_asm, "\t $ra, $imm9"),
 [/*(set GPROut:$rs, (cond_op RC:$ra, immSExt16:$imm16))*/],ALU32_S_SLOT01>{
+let TSFlags{52} = 1;
 let Inst{25-20} = 0b000000;
 let isCommutable = 0;
 }
@@ -509,8 +513,12 @@ def MovV2G40 : VMovBase<4,6,0b0000010111,"movv2g40",extractelt,GPROut,VPR4Out,AL
 //def MovV2G20 : VMovBase<4,6,0b0000011011,"movv2g20",extractelt,GPROut,CPU128Regs,ALU32_V_SLOT01>;
 def MovV2G10 : VMovBase<4,6,0b0000011111,"movv2g10",vector_extract,GPROut,VPR16Out,ALU32_V_SLOT01>;
 
-def MovIGH : SMovBase<4,5,0b0001,"movigh",GPROut,Data_Transmission_2_SLOT0123>;
-def MovIGL : SMovBase<4,5,0b0101,"movigl",GPROut,Data_Transmission_2_SLOT0123>;
+def MovIGH : SMovBase<7,5,0b0001,"movigh",GPROut,Data_Transmission_2_SLOT0123>;
+
+let Constraints = "$ra = $rb" in 
+def MovIGL : SMovBase<7,5,0b0101,"movigl",GPROut,Data_Transmission_2_SLOT0123>;
+
+
 def VMovG2V40 : RMovBase<4,4,0b10100101,"vmovrg2v40",VPR4Out,GPROut,ALU32_V_SLOT01>;
 def MovG2G : RMovBase<4,4,0b10000000,"movg2g",GPROut,GPROut,ALU32_S_SLOT01>;
 //***************************************************************************************************//
@@ -518,6 +526,8 @@ def MovG2G : RMovBase<4,4,0b10000000,"movg2g",GPROut,GPROut,ALU32_S_SLOT01>;
 
 
 //**********************************************A&L instruction**************************************//
+
+
 def ADDiu :ArithLogicI<0x7,0x6,0b000,"addi",add,simm11,immSExt11, CPURegs>;
 
 def ADDu : ArithLogicR<7,1,0b00000000, "add", add, ALU32_S_SLOT01, CPURegs, 1>;
@@ -525,14 +535,12 @@ def SUBu : ArithLogicR<7,1,0b00000010, "sub", sub, ALU32_S_SLOT01, CPURegs, 1>;
 def MUL : ArithLogicR<7,1,0b00001100,"mul32", mul, ALU32_S_SLOT01,CPURegs,1>;
 def ORu :ArithLogicR<7,1,0b00000101,"or",or,ALU32_S_SLOT01,CPURegs,1>;
 //def SHL : shift_rotate_imm32<0,1,0b00001001, 0x00, "sl", shl>;
+
 def SHL : shift_rotate_reg<7,1,0b00001001, 0x00, "sl", shl,CPURegs>;
 def SRA : shift_rotate_reg<7,1,0b00001010, 0x00, "sra", sra,CPURegs>;
 def SRL : shift_rotate_reg<7,1,0b00001011,0x00,"srl",srl,CPURegs>;
 def AND : ArithLogicR<0x7,0x1,0b00000100,"and", and, ALU32_S_SLOT01,CPURegs,1>;
 def XORu : ArithLogicR<7,1,0b00000110, "xor", xor, ALU32_S_SLOT01, CPURegs,1>;
-
-
-//def NOT  : ArithLogicR2i5<0,4,0b00111,"not",not,ALU32_S_SLOT01,CPURegs,0>;
 def EQ   :SetCC_R<7,4,0b000000000,"eq",seteq,CPURegs>;
 def NEQ   :SetCC_R<7,4,0b00000001,"neq",setne,CPURegs>;
 def GT   :SetCC_R<7,4,0b00000010,"gt",setgt,CPURegs>;
@@ -552,8 +560,8 @@ def GEI :SetCC_RI<7,5,0b10010,"gei",setge,CPURegs>;
 def LEI	:SetCC_RI<7,5,0b10110,"lei",setle,CPURegs>;
 
 
-def MAX  :MMBase<4,1,0b00000111,"max",DSPMAX,ALU32_S_SLOT01,GPROut>;
-def MIN  :MMBase<4,1,0b00001000,"min",DSPMIN,ALU32_S_SLOT01,GPROut>;
+def MAX  :MMBase<7,1,0b00000111,"max",DSPMAX,ALU32_S_SLOT01,GPROut>;
+def MIN  :MMBase<7,1,0b00001000,"min",DSPMIN,ALU32_S_SLOT01,GPROut>;
 
 //***************************************************************************************************//
 
@@ -590,6 +598,10 @@ def VLOAD8 : LoadM128_8<7,2,0b10011,"vload8",load_a>;
 def :Pat<(i32 immSExt16:$in),
 (MovGR ZERO , imm:$in)>;
 
+class DSPPat<dag pattern, dag result> : Pat<pattern, result>{
+}
+
+
 def :Pat<(DSPHi tglobaladdr:$in),(MovIGH  ZERO, tglobaladdr:$in)>;
 
 
@@ -598,6 +610,8 @@ def :Pat<(add CPURegs:$hi, (DSPLo tglobaladdr:$lo)),
 
 def :Pat<(add CPURegs:$gp,(DSPGPRel tglobaladdr:$in)),
 		(ADDiu CPURegs:$gp, tglobaladdr:$in)>;
+
+
 //def :Pat<(i32(DSPWrapper tconstpool:$dst)),(MovGR ZERO, tconstpool:$dst)>;
 //def :Pat<(set GPROut:$ra, addr:$addr) ,(ADDiu SP, addr:$addr)>;
 

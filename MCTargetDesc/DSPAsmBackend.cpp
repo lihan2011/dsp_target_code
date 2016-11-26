@@ -152,7 +152,7 @@ getFixupKindInfo(MCFixupKind Kind) const {
 		{ "fixup_DSP_CALL",0,16, 0 },
 
 		//add this  not appear in relocation table?
-		{ "fixup_DSP_PC21_S2", 0, 21, MCFixupKindInfo::FKF_IsPCRel },
+		{"fixup_DSP_PC21_S2", 0, 21, MCFixupKindInfo::FKF_IsPCRel },
 		{"fixup_DSP_PC26_S2", 0, 26, 0 },
 
 

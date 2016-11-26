@@ -19,6 +19,7 @@
 #include "DSPRegisterInfo.h"
 #include "MCTargetDesc\DSPBaseInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetInstrInfo.h"
 
@@ -97,6 +98,8 @@ namespace llvm{
 		DFAPacketizer *CreateTargetScheduleState(const TargetMachine *TM,
 			const ScheduleDAG *DAG) const;
 
+		//unsigned CaculateNumOfMemInst(MachineLoop *L);
+		//unsigned CaculateNumOfAluInst(MachineLoop *L);
 	};
 
 	const DSPInstrInfo *createDSPSEInstrInfo(const DSPSubtarget &STI);

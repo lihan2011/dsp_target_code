@@ -316,3 +316,4 @@ const ScheduleDAG *DAG) const {
 	const InstrItineraryData *II = TM->getInstrItineraryData();
 	return TM->getSubtarget<DSPGenSubtargetInfo>().createDFAPacketizer(II);
 }
+

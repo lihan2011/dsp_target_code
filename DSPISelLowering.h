@@ -342,6 +342,8 @@ namespace llvm {
 
 		bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA)const override;
 
+		bool isFPImmLegal(const APFloat &Imm, EVT VT) const override;
+
 	};
 	const DSPTargetLowering *createDSPSETargetLowering(DSPTargetMachine &TM, const  DSPSubtarget &STI);
 }

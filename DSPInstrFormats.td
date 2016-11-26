@@ -54,7 +54,7 @@ class InstDSP<dag outs, dag ins, string asmstr, list<dag> pattern,InstrItinClass
   let Pattern = pattern;
   let Itinerary = itin;
 
-  // *** Must match MCTargetDesc/HexagonBaseInfo.h ***
+  // *** Must match MCTargetDesc/DSPBaseInfo.h ***
 
   // Instruction type according to the ISA.
   //IType Type = type;
@@ -139,6 +139,7 @@ class InstDSP<dag outs, dag ins, string asmstr, list<dag> pattern,InstrItinClass
 
   let DecoderNamespace = "DSP";
   field bits<32> SoftFail = 0;
+
 }
 
 // DSP Pseudo Instructions Format
@@ -153,8 +154,7 @@ let isPseudo = 1;
 
 
 //two registers
-
-
+/*
 
 /*================================================
 typecode|opcode|rd|rs|imm|inner_op<10>
@@ -173,7 +173,7 @@ class R2i10< bits<3> typecode, bits<3> opcode,bits<10> inner_op,dag outs, dag in
   let Inst{13-10}=imm;
   }
 
-
+*/
 
 /*================================================
 typecode|opcode|rd|rs|imm|inner_op<5>
@@ -189,42 +189,6 @@ class R2i5<bits<3>typecode,bits<3>opcode, bits<5> inner_op, dag outs, dag ins, s
   let Inst{19-14}=rs;
   let Inst{13-5}=imm;
   let Inst{4-0}=inner_op;
-  }
-
-
-
-  /*================================================
-typecode|opcode|rd|rs|imm|inner_op<4>
-================================================*/
-class R2i4<bits<3>typecode,bits<3>opcode, bits<4> inner_op, dag outs, dag ins, string asmstr, list<dag> pattern, InstrItinClass itin>
-   :InstDSP<outs, ins, asmstr, pattern, itin>{
-  bits<6> rd;
-  bits<6> rs;
-  bits<10> imm;
-  let Inst{31-29} = typecode;
-  let Inst{28-26} = opcode;
-  let Inst{25-20}=rd;
-  let Inst{19-14}=rs;
-  let Inst{13-4}=imm;
-  let Inst{3-0}=inner_op;
-  }
-
-
-
-  /*================================================
-typecodetypecode|opcode|rd|rs|imm|inner_op<3>
-================================================*/
-class R2i3<bits<3>typecode,bits<3>opcode, bits<3> inner_op, dag outs, dag ins, string asmstr, list<dag> pattern, InstrItinClass itin>
-   :InstDSP<outs, ins, asmstr, pattern, itin>{
-  bits<6> rd;
-  bits<6> rs;
-  bits<11> imm;
-  let Inst{31-29} = typecode;
-  let Inst{28-26} = opcode;
-  let Inst{25-20}=rd;
-  let Inst{19-14}=rs;
-  let Inst{13-3}=imm;
-  let Inst{2-0}=inner_op;
   }
 
 

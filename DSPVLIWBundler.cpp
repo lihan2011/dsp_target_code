@@ -132,6 +132,7 @@ bool DSPVLIWBundlerDriver::runOnMachineBasicBlock(MachineBasicBlock &MBB){
 				int FU = getUnit(package[i]);
 				slot CurrentSlot = getSlot(Bund, FU);
 				int slot =CurrentSlot.SlotMask;
+				//std::cout <<std::hex<< "slot" << slot << std::endl;
 				int mask = CurrentSlot.mask;
 				Bund->usedSlot = Bund->usedSlot&mask;
 				Bund->InstrToSlot[package[i]]= slot;
@@ -142,6 +143,7 @@ bool DSPVLIWBundlerDriver::runOnMachineBasicBlock(MachineBasicBlock &MBB){
 			int FU = getUnit(MI);
 			slot CurrentSlot = getSlot(Bund, FU);
 			int slot = CurrentSlot.SlotMask;
+			//std::cout << "slot" << slot << std::endl;
 			Bund->InstrToSlot[MI] = slot;
 			Bund->reset();
 		}
@@ -210,11 +212,11 @@ void DSPVLIWBundler::PerformBundle(DSPMCInst *MI,uint32_t* Binary){
 		
 
 		uint32_t slots = MI->getPos();
-		std::cout << "MI op" << MI->getOpcode() << std::endl;
+		//std::cout << "MI op" << MI->getOpcode() << std::endl;
 		std::cout << "slot!!" << std::hex << slots <<std::endl;
-		std::cout << "before binary" << std::hex << (*Binary<<28) << std::endl;
+		std::cout << "before binary" << std::hex << *Binary<< std::endl;
 		(*Binary) = (*Binary)&Flag&slots;
-		std::cout << "after binary" << std::hex << (*Binary<<28) << std::endl;
+		std::cout << "after binary" << std::hex << *Binary<< std::endl;
 	}	
 }
 

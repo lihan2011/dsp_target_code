@@ -162,7 +162,11 @@ namespace llvm {
 
 			//is a VLIW start or not
 			StartPos = 50,
-			StartMask = 0x1
+			StartMask = 0x1,
+
+			isAluPos = 52,
+			isAluMask = 0x1
+
 		};
 	}
 		inline static unsigned getDSPRegisterNumbering(unsigned RegEnum){

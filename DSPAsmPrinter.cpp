@@ -105,6 +105,7 @@ void DSPAsmPrinter::EmitInstruction(const MachineInstr *MI){
 			MCI.setPacketStart(Index == 0);
 			MCI.setPacketEnd(Index == (Size - 1));
 			unsigned slot = BD->InstrToSlot[BundleMIs[Index]];
+			//std::cout << "asmprinter" << slot << std::endl;
 			MCI.setPos(slot);
 			//if it is the CFIInstruction, now use the defalut emit function
 			unsigned num = BundleMIs[Index]->getNumOperands();

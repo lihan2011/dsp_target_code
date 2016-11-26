@@ -115,6 +115,7 @@ const char *DSPTargetLowering::getTargetNodeName(unsigned Opcode) const {
 	case DSPISD::Lo: return "DSPISD::Lo"; break;
 	case DSPISD::InsertVE8: return "DSPISD::InsertVE8"; break;
 	case DSPISD::InsertVE16: return "DSPISD::InsertVE16"; break;
+	case DSPISD::JmpLink: return "DSPISD::JmpLink"; break;
 	}
 
 }
@@ -139,6 +140,18 @@ DSPTargetLowering::DSPTargetLowering(DSPTargetMachine &TM, const DSPSubtarget &S
 	setOperationAction(ISD::INTRINSIC_WO_CHAIN, MVT::Other, Custom);
 	setOperationAction(ISD::STORE, MVT::v4i32, Legal);
 
+
+	// Load extented operations for i1 types must be promoted
+	setLoadExtAction(ISD::EXTLOAD, MVT::i1, Promote);
+	setLoadExtAction(ISD::ZEXTLOAD, MVT::i1, Promote);
+	setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);
+
+	setTruncStoreAction(MVT::f64, MVT::f32, Expand);
+
+	AddPromotedToType(ISD::SETCC, MVT::i1, MVT::i32);
+	//DSP does not have i1 type, so use i32 for
+  // setcc operations results (slt, sgt, ...). 
+
 	setBooleanContents(ZeroOrOneBooleanContent);
 	setOperationAction(ISD::BUILD_VECTOR, MVT::v4i32, Custom);
 	setOperationAction(ISD::BUILD_VECTOR, MVT::v8i16, Custom);
@@ -159,20 +172,63 @@ DSPTargetLowering::DSPTargetLowering(DSPTargetMachine &TM, const DSPSubtarget &S
 
 	setOperationAction(ISD::BR_CC, MVT::i32, Promote);
 	AddPromotedToType(ISD::BR_CC, MVT::i1, MVT::i32);
-
 	setOperationAction(ISD::BRCOND, MVT::Other, Custom);
-
-
-
-	
-	//AddPromotedToType(ISD::SETCC, MVT::i1, MVT::i32);
-
 	setOperationAction(ISD::SELECT, MVT::i32, Custom);
 
 
 	setOperationAction(ISD::SELECT_CC, MVT::i32, Expand);
 	setOperationAction(ISD::SELECT_CC, MVT::Other, Expand);
 	setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::Other, Expand);
+	setOperationAction(ISD::UINT_TO_FP, MVT::i32, Expand);
+	setOperationAction(ISD::UINT_TO_FP, MVT::i64, Expand);
+	setOperationAction(ISD::FP_TO_UINT, MVT::i32, Expand);
+	setOperationAction(ISD::FP_TO_UINT, MVT::i64, Expand);
+
+	setOperationAction(ISD::CTTZ, MVT::i32, Expand);
+	setOperationAction(ISD::CTTZ, MVT::i64, Expand);
+	setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Expand);
+	setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i64, Expand);
+	setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Expand);
+	setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i64, Expand);
+	setOperationAction(ISD::ROTL, MVT::i32, Expand);
+	setOperationAction(ISD::ROTL, MVT::i64, Expand);
+	setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
+	setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i64, Expand);
+
+	setOperationAction(ISD::FSIN, MVT::f32, Expand);
+	setOperationAction(ISD::FSIN, MVT::f64, Expand);
+	setOperationAction(ISD::FCOS, MVT::f32, Expand);
+	setOperationAction(ISD::FCOS, MVT::f64, Expand);
+	setOperationAction(ISD::FSINCOS, MVT::f32, Expand);
+	setOperationAction(ISD::FSINCOS, MVT::f64, Expand);
+	setOperationAction(ISD::FPOWI, MVT::f32, Expand);
+	setOperationAction(ISD::FPOW, MVT::f32, Expand);
+	setOperationAction(ISD::FPOW, MVT::f64, Expand);
+	setOperationAction(ISD::FLOG, MVT::f32, Expand);
+	setOperationAction(ISD::FLOG2, MVT::f32, Expand);
+	setOperationAction(ISD::FLOG10, MVT::f32, Expand);
+	setOperationAction(ISD::FEXP, MVT::f32, Expand);
+	setOperationAction(ISD::FMA, MVT::f32, Expand);
+	setOperationAction(ISD::FMA, MVT::f64, Expand);
+	setOperationAction(ISD::FREM, MVT::f32, Expand);
+	setOperationAction(ISD::FREM, MVT::f64, Expand);
+
+	setOperationAction(ISD::EH_RETURN, MVT::Other, Custom);
+
+	setOperationAction(ISD::VAARG, MVT::Other, Expand);
+	setOperationAction(ISD::VACOPY, MVT::Other, Expand);
+	setOperationAction(ISD::VAEND, MVT::Other, Expand);
+
+	// Use the default for now
+	setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
+	setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
+
+	setOperationAction(ISD::ATOMIC_LOAD, MVT::i32, Expand);
+	setOperationAction(ISD::ATOMIC_LOAD, MVT::i64, Expand);
+	setOperationAction(ISD::ATOMIC_STORE, MVT::i32, Expand);
+	setOperationAction(ISD::ATOMIC_STORE, MVT::i64, Expand);
+
+	setInsertFencesForAtomic(true);
 }
 
 const DSPTargetLowering *DSPTargetLowering::create(DSPTargetMachine &TM, const DSPSubtarget &STI){
@@ -224,6 +280,16 @@ static bool isZero(SDValue V) {
 	ConstantSDNode *C = dyn_cast<ConstantSDNode>(V);
 	return C && C->isNullValue();
 }
+
+bool DSPTargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT) const {
+	std::cout << "fp legal" << std::endl;
+	if (VT != MVT::f32 || VT != MVT::f64)
+		return false;
+	if (Imm.isNegZero())
+		return false;
+	return Imm.isZero();
+}
+
 static SDValue LowerBuildVector(SDValue Op, SelectionDAG &DAG){
 	SDLoc dl(Op);
 	MVT VT = Op.getSimpleValueType();
