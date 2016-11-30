@@ -1,5 +1,5 @@
 This is the DSP backend source code.
-
+The copyright is belong to cic.
 In order to build this code,you need to:
 
 1.new a dir in llvm_src/lib/Target called DSP
