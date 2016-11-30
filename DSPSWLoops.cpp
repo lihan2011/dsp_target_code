@@ -423,8 +423,8 @@ bool DSPSWLoops::swingModuloScheduler(MachineLoop *L){
 	}
 	std::cout << "size	" << size<< std::endl;
 	std::cout << "size2	" << size2 << std::endl;
-	//SMS.enterRegion(MBB, MBB->getFirstNonPHI(), MBB->getFirstTerminator(), size2);
-	SMS.enterRegion(MBB, MBB->begin(), MBB->getFirstTerminator(), size);
+	SMS.enterRegion(MBB, MBB->getFirstNonPHI(), MBB->getFirstTerminator(), size2);
+	//SMS.enterRegion(MBB, MBB->begin(), MBB->getFirstTerminator(), size);
 	SMS.schedule();
 	SMS.exitRegion();
 	SMS.finishBlock();
