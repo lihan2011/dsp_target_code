@@ -205,7 +205,7 @@ void DSPVLIWBundler::PerformBundle(DSPMCInst *MI,uint32_t* Binary){
 		//std::cout << "FU " << FuncUnit << "opcode " << MI->getOpcode() << std::endl;
 		uint32_t Flag = 0;
 		if (isSinglePackage(MI))
-			Flag = DSPVLIW::VLIWINSIDE;
+			Flag = DSPVLIW::VLIWEND;
 		else if (isPacketEnd)
 			Flag = DSPVLIW::VLIWEND;
 		else Flag = DSPVLIW::VLIWINSIDE;

@@ -10,7 +10,6 @@ detail below:
 
 
 */
-#include "DSP.h"
 #include "MCTargetDesc/DSPBaseInfo.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -31,16 +30,16 @@ detail below:
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Pass.h"
-
 #include "llvm/PassSupport.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
 #include <vector>
 #include <iostream>
 #include <climits>
 #include <algorithm>
 using namespace llvm;
 
-
+#define DEBUG_TYPE "swpipeline"
 // Helper function (copied from LoopVectorize.cpp)
 static void addInnerLoop(Loop &L, SmallVectorImpl<Loop *> &V) {
 	if (L.empty())
@@ -54,6 +53,7 @@ namespace llvm {
 }
 
 namespace {
+	class NodeSet;
 	class DSPSWLoops : public MachineFunctionPass{
 	public:
 		static char ID;
@@ -72,16 +72,20 @@ namespace {
 			{
 				MachineLoop *L = *I;
 
-				std::cout << "Loop " << (*I)->getLoopDepth() << std::endl;
+				DEBUG(dbgs() << "*****************************Start Perform SoftWare Pipeling****************************" << "\n");
 				Changed = Process(L);
 			}
 			return true;
 		}
+
+		const char* getPassName() const override{
+			return "DSP SoftWare Pipeline Pass";
+		}
 		void getAnalysisUsage(AnalysisUsage &AU) const override{
-			AU.addRequired<AliasAnalysis>();
-			AU.addPreserved<AliasAnalysis>();
+			AU.setPreservesCFG();
+			AU.addRequiredID(MachineDominatorsID);
 			AU.addRequired<MachineLoopInfo>();
-			AU.addRequired<MachineDominatorTree>();
+			AU.addRequired<AliasAnalysis>();
 			AU.addRequired<LiveIntervals>();
 			AU.addPreserved<LiveIntervals>();
 			MachineFunctionPass::getAnalysisUsage(AU);
@@ -162,11 +166,11 @@ namespace {
 	//this class is used to build dependence graph
 	class SwingSchedulerDAG : public ScheduleDAGInstrs{
 		DSPSWLoops &pass;
-
 		unsigned MII;
 		bool isScheduled;
-		LiveIntervals *LIS;
 		MachineLoop &L;
+		LiveIntervals &LIS;
+
 
 		/// A toplogical ordering of the SUnits, which is needed for changing
 		/// dependences and iterating over the SUnits.
@@ -180,31 +184,42 @@ namespace {
 
 		SetVector<SUnit*> NodeOrder;
 		std::vector<NodeInfo> ScheduleInfo;
+		typedef SmallVector<NodeSet, 8> NodeSetType;
 	public :
-		class NodeSet{
-			SetVector<SUnit*> Nodes;
-			bool hasRescurrence;
-			unsigned RecMII;
-			int MaxMov;
-			int MaxDepth;
-			unsigned Colocate;
-			SUnit *ExceedPressure;
-		public:
-			typedef SetVector<SUnit*>::iterator iterator;
-			typedef SetVector<SUnit*>::const_iterator const_iterator;
-			NodeSet() :Nodes(), hasRescurrence(false), RecMII(0), MaxMov(0), MaxDepth(0), Colocate(0), ExceedPressure(nullptr){}
+		
+		/// Helper class to implement Johnson's circuit finding algorithm.
+		class Circuits {
+			std::vector<SUnit> &SUnits;
+			SetVector<SUnit *> Stack;
+			BitVector Blocked;
+			SmallVector<SmallPtrSet<SUnit *, 4>, 10> B;
+			SmallVector<SmallVector<int, 4>, 16> AdjK;
+			unsigned NumPaths;
+			static unsigned MaxPaths;
 
-			template <typename It>
-			NodeSet(It S, It E)
-				: Nodes(S, E), HasRecurrence(true), RecMII(0), MaxMOV(0), MaxDepth(0),
-				Colocate(0), ExceedPressure(nullptr) {}
+		public:
+			Circuits(std::vector<SUnit> &SUs)
+				: SUnits(SUs), Stack(), Blocked(SUs.size()), B(SUs.size()),
+				AdjK(SUs.size()) {}
+			/// Reset the data structures used in the circuit algorithm.
+			void reset() {
+				Stack.clear();
+				Blocked.reset();
+				B.assign(SUnits.size(), SmallPtrSet<SUnit *, 4>());
+				NumPaths = 0;
+			}
+			void createAdjacencyStructure(SwingSchedulerDAG *DAG);
+			bool circuit(int V, int S, NodeSetType &NodeSets, bool HasBackedge = false);
+			void unblock(int U);
 		};
+
+		
 	private:
 		const RegisterClassInfo &RegClassInfo;
 	public:
-		SwingSchedulerDAG(DSPSWLoops &P, MachineLoop *L, const RegisterClassInfo &rci, LiveIntervals *LIV)
-			:ScheduleDAGInstrs(*P.MF, *P.MLI, *P.MDT, false), pass(P), MII(0), isScheduled(false),
-			L(*L), Topo(SUnits, &ExitSU), RegClassInfo(rci), LIS(LIV){}
+		SwingSchedulerDAG(DSPSWLoops &P, MachineLoop *L, const RegisterClassInfo &rci, LiveIntervals &LIV)
+			:ScheduleDAGInstrs(*P.MF, *P.MLI, *P.MDT, false,false, &LIV), pass(P), MII(0), isScheduled(false),
+			L(*L), Topo(SUnits, &ExitSU), RegClassInfo(rci),LIS(LIV){}
 
 		void schedule() ;
 		int getASAP(SUnit *Node) { return ScheduleInfo[Node->NodeNum].ASAP; }
@@ -222,6 +237,28 @@ namespace {
 		/// The height, in the dependence graph, for a node.
 		int getHeight(SUnit *Node) { return Node->getHeight(); }
 
+	private:
+		void findRecCircuits(NodeSetType nodeset);
+
+	};
+
+	class NodeSet{
+		SetVector<SUnit*> Nodes;
+		bool hasRescurrence;
+		unsigned RecMII;
+		int MaxMov;
+		int MaxDepth;
+		unsigned Colocate;
+		SUnit *ExceedPressure;
+	public:
+		typedef SetVector<SUnit*>::iterator iterator;
+		typedef SetVector<SUnit*>::const_iterator const_iterator;
+		NodeSet() :Nodes(), hasRescurrence(false), RecMII(0), MaxMov(0), MaxDepth(0), Colocate(0), ExceedPressure(nullptr){}
+
+		template <typename It>
+		NodeSet(It S, It E)
+			: Nodes(S, E), HasRecurrence(true), RecMII(0), MaxMOV(0), MaxDepth(0),
+			Colocate(0), ExceedPressure(nullptr) {}
 	};
 } // end anonymous namespace
 
@@ -256,48 +293,6 @@ bool isSlot01_Mov(MachineInstr *MI){
 	}
 }
 
-// Helper function to find loop dependency cycles through phi nodes
-/*void DSPSWLoops::getPhiCycles(Instruction *I, const PHINode *Phi,
-	InstructionTrace trace,
-	CycleSet &cycles) {
-	// stay within the loop body
-	if (I->getParent() != Phi->getParent())
-		return;
-
-	// found a cycle when we end up at our start point
-	if (I == Phi && trace.size() != 0) {
-		trace.add(I);
-		cycles.insert(trace);
-		return;
-	}
-
-	// found a cycle not passing through the currently considered phi-node
-	// for example: a -> b -> c -> b, this can only happen if b is a phi-node
-	if (isa<PHINode>(I) && trace.find(I)) {
-		return;
-	}
-
-	// Add current instruction and check cycles for each operand of the
-	// instruction.  Don't add original Phi node until the cycle is completed
-	// to preserve (reversed) ordering.
-	if (I != Phi)
-		trace.add(I);
-
-	if (isa<PHINode>(I)) {
-		PHINode *P = cast<PHINode>(I);
-
-		for (unsigned i = 0; i < P->getNumIncomingValues(); i++) {
-			Instruction *II = dyn_cast<Instruction>(P->getIncomingValue(i));
-			if (II) getPhiCycles(II, Phi, trace, cycles);
-		}
-	}
-	else {
-		for (auto &O : I->operands()) {
-			Instruction *II = dyn_cast<Instruction>(O);
-			if (II) getPhiCycles(II, Phi, trace, cycles);
-		}
-	}
-}*/
 
 // Helper function to find the nodes located at any path between the previous
 // and current recurrence.
@@ -412,21 +407,24 @@ unsigned DSPSWLoops::calculateRecMII(MachineLoop *L, CycleSet &C){
 
 bool DSPSWLoops::swingModuloScheduler(MachineLoop *L){
 	if (L->getBlocks().size() != 1) llvm_unreachable("SMS works on single block only");
-	SwingSchedulerDAG SMS(*this, L, RegClassInfo, &getAnalysis<LiveIntervals>());
-	MachineBasicBlock *MBB = L->getHeader();
+	SwingSchedulerDAG SMS(*this, L, RegClassInfo, getAnalysis<LiveIntervals>());
+	MachineBasicBlock *MBB = L->getBlocks()[0];
+	DEBUG(dbgs() << "**********start build scheduler for " << MBB->getName() << "block" << "\n");
 	SMS.startBlock(MBB);
 	unsigned size = MBB->size();
-	std::cout << "tem" << MBB->getFirstInstrTerminator()->getOpcode() << std::endl;
-	std::cout << "instr_end" << MBB->instr_end()->getOpcode() << std::endl;
+	unsigned size2 = 0;
 	for (MachineBasicBlock::iterator I = MBB->getFirstTerminator(),
 		E = MBB->instr_end();
 		I != E; ++I, --size);
-	/*MachineBasicBlock::iterator E = MBB->SkipPHIsAndLabels(MBB->begin());
-	for (auto b = MBB->begin(); b != E; b++){
-		size++;
-		std::cout << "loop instr " << b->getOpcode() << std::endl;
-	}*/
-	SMS.enterRegion(MBB, MBB->begin(), MBB->getFirstInstrTerminator(), size);
+
+	for (MachineBasicBlock::iterator i = MBB->getFirstNonPHI(),e = MBB->getFirstTerminator(); i !=e; i++)
+	{
+		size2++;
+	}
+	std::cout << "size	" << size<< std::endl;
+	std::cout << "size2	" << size2 << std::endl;
+	//SMS.enterRegion(MBB, MBB->getFirstNonPHI(), MBB->getFirstTerminator(), size2);
+	SMS.enterRegion(MBB, MBB->begin(), MBB->getFirstTerminator(), size);
 	SMS.schedule();
 	SMS.exitRegion();
 	SMS.finishBlock();
@@ -436,9 +434,14 @@ bool DSPSWLoops::swingModuloScheduler(MachineLoop *L){
 void SwingSchedulerDAG::schedule(){
 	AliasAnalysis *AA = pass.AA;
 	buildSchedGraph(AA);
-	//Topo.InitDAGTopologicalSorting();
-	std::cout << "schedule" << std::endl;
-	std::cout << "name" << getDAGName() << std::endl;
+	Topo.InitDAGTopologicalSorting();
+	for each (auto SU in SUnits)
+	{
+		std::cout << "su op" << SU.getInstr()->getOpcode() << std::endl;
+	}
+}
+void  SwingSchedulerDAG::findRecCircuits(NodeSetType node){
+
 }
 
 bool DSPSWLoops::Process(MachineLoop *L){

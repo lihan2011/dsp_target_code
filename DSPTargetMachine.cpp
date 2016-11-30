@@ -75,7 +75,8 @@ namespace {
 		}
 
 		virtual bool addInstSelector();
-		//virtual bool addPreRegAlloc();
+		bool addPreRegAlloc() override;
+		bool addPostRegAlloc() override;
 		virtual bool addPreEmitPass();
 
 	};
@@ -88,17 +89,22 @@ bool DSPPassConfig::addInstSelector(){
 	return false;
 }
 
-/*bool DSPPassConfig::addPreRegAlloc() {
+bool DSPPassConfig::addPreRegAlloc() {
 	/*if (!DSPReserveGP) {
 		// $gp is a caller-saved register.
 		addPass(createDSPEmitGPRestorePass(getDSPTargetMachine()));
-	}
+	}*/
 	if (EnableSwPipeline)
 	{
 		addPass(createLoopPipelinePass());
 	}
-	return true;
-}*/
+	return false;
+}
+
+bool DSPPassConfig::addPostRegAlloc(){
+
+	return false;
+}
 
 
 bool DSPPassConfig::addPreEmitPass() {

@@ -22,8 +22,8 @@ namespace llvm {
 	namespace DSPVLIW{
 		enum 
 		{
-			VLIWEND = 0x7fffffff,
-			VLIWINSIDE = 0xffffffff,
+			VLIWEND = 0xffffffff,
+			VLIWINSIDE = 0x7fffffff,
 
 		};
 	}
