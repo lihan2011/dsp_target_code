@@ -33,6 +33,7 @@ detail below:
 #include "llvm/PassSupport.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Target/TargetInstrInfo.h"
 #include <vector>
 #include <iostream>
 #include <climits>
@@ -57,16 +58,18 @@ namespace {
 	class DSPSWLoops : public MachineFunctionPass{
 	public:
 		static char ID;
-		explicit DSPSWLoops() :MachineFunctionPass(ID){
+		explicit DSPSWLoops() :MachineFunctionPass(ID), MF(nullptr), MLI(nullptr), MDT(nullptr), AA(nullptr),
+			TII(nullptr){
 			initializeDSPSWLoopsPass(*PassRegistry::getPassRegistry());
 		}
-		bool runOnMachineFunction(MachineFunction &MF) override{
-			this->MF = &MF;
+		bool runOnMachineFunction(MachineFunction &mf) override{
+			this->MF = &mf;
 			//CMA = &getAnalysis<CostModelAnalysis>();
 			MLI = &getAnalysis<MachineLoopInfo>();
 			MDT = &getAnalysis<MachineDominatorTree>();
 			AA = &getAnalysis<AliasAnalysis>();
-			RegClassInfo.runOnMachineFunction(MF);
+			RegClassInfo.runOnMachineFunction(mf);
+			TII = MF->getTarget().getInstrInfo();
 			bool Changed;
 			for (MachineLoopInfo::iterator I = MLI->begin(),E = MLI->end(); I !=E; I++)
 			{
@@ -91,12 +94,13 @@ namespace {
 			MachineFunctionPass::getAnalysisUsage(AU);
 		}
 	public:
-		MachineFunction *MF = nullptr;
+		MachineFunction *MF;
 		const MachineLoopInfo *MLI;
 		const MachineDominatorTree *MDT;
 		DependenceAnalysis *DA;
-		AliasAnalysis *AA = nullptr;
+		AliasAnalysis *AA;
 		RegisterClassInfo RegClassInfo;
+		const TargetInstrInfo *TII;
 		bool Process(MachineLoop *L);
 		bool swingModuloScheduler(MachineLoop *L);
 		bool canPipelineLoop(MachineLoop *L);
@@ -219,7 +223,9 @@ namespace {
 	public:
 		SwingSchedulerDAG(DSPSWLoops &P, MachineLoop *L, const RegisterClassInfo &rci, LiveIntervals &LIV)
 			:ScheduleDAGInstrs(*P.MF, *P.MLI, *P.MDT, false,false, &LIV), pass(P), MII(0), isScheduled(false),
-			L(*L), Topo(SUnits, &ExitSU), RegClassInfo(rci),LIS(LIV){}
+			L(*L), Topo(SUnits, &ExitSU), RegClassInfo(rci),LIS(LIV){
+			TII = P.MF->getTarget().getInstrInfo();
+		}
 
 		void schedule() ;
 		int getASAP(SUnit *Node) { return ScheduleInfo[Node->NodeNum].ASAP; }
@@ -237,14 +243,20 @@ namespace {
 		/// The height, in the dependence graph, for a node.
 		int getHeight(SUnit *Node) { return Node->getHeight(); }
 
+		bool isLoopCarriedOrder(SUnit *SU);
+
 	private:
 		void findRecCircuits(NodeSetType nodeset);
+
+		bool isLoopCarriedOrder(SUnit *Source, const SDep &Dep, bool isSucc);
+
+		bool computeDelta(MachineInstr *MI, unsigned &Delta);
 
 	};
 
 	class NodeSet{
 		SetVector<SUnit*> Nodes;
-		bool hasRescurrence;
+		bool hasRecurrence;
 		unsigned RecMII;
 		int MaxMov;
 		int MaxDepth;
@@ -253,12 +265,45 @@ namespace {
 	public:
 		typedef SetVector<SUnit*>::iterator iterator;
 		typedef SetVector<SUnit*>::const_iterator const_iterator;
-		NodeSet() :Nodes(), hasRescurrence(false), RecMII(0), MaxMov(0), MaxDepth(0), Colocate(0), ExceedPressure(nullptr){}
+		NodeSet() :Nodes(), hasRecurrence(false), RecMII(0), MaxMov(0), MaxDepth(0), Colocate(0), ExceedPressure(nullptr){}
 
 		template <typename It>
 		NodeSet(It S, It E)
 			: Nodes(S, E), HasRecurrence(true), RecMII(0), MaxMOV(0), MaxDepth(0),
 			Colocate(0), ExceedPressure(nullptr) {}
+		unsigned size() const { return Nodes.size(); }
+
+		void clear() {
+			Nodes.clear();
+			RecMII = 0;
+			hasRecurrence = false;
+			MaxMov = 0;
+			MaxDepth = 0;
+			Colocate = 0;
+			ExceedPressure = nullptr;
+		}
+		iterator begin(){
+			return Nodes.begin();
+		}
+		const_iterator begin() const {
+			return Nodes.begin(); 
+		}
+
+		iterator end(){
+			return Nodes.end();
+		}
+		const iterator end() const {
+			return Nodes.end();
+		}
+		void print(raw_ostream &os) const {
+			os << "Num nodes " << size() << " rec " << RecMII << " mov " << MaxMov
+				<< " depth " << MaxDepth << " col " << Colocate << "\n";
+			for (iterator I = begin(), E = end(); I != E; ++I)
+				os << "   SU(" << (*I)->NodeNum << ") " << *((*I)->getInstr());
+			os << "\n";
+		}
+
+		void dump() const { print(dbgs()); }
 	};
 } // end anonymous namespace
 
@@ -267,12 +312,28 @@ char DSPSWLoops::ID = 0;
 INITIALIZE_PASS_BEGIN(DSPSWLoops,"DSPSWLoops", "SoftWare Pipeline",false,false)
 INITIALIZE_PASS_DEPENDENCY(MachineLoopInfo)
 INITIALIZE_PASS_END(DSPSWLoops, "DSPSWLoops", "SoftWare Pipeline",false,false)
+
+
 //******************************static help function*********************************************
-bool isAluInst(MachineInstr *MI){
+static bool isAluInst(MachineInstr *MI){
 	return (MI->getDesc().TSFlags >> DSPII::isAluPos)&DSPII::isAluMask;
 }
+/// Return true if the dependence is an order dependence between non-Phis.
+static bool isOrder(SUnit *Source, const SDep &Dep) {
+	if (Dep.getKind() != SDep::Order)
+		return false;
+	return (!Source->getInstr()->isPHI() &&
+		!Dep.getSUnit()->getInstr()->isPHI());
+}
 
-bool isSlot0_Mov(MachineInstr *MI){
+/// Return the Phi register value that comes the the loop block.
+static unsigned getLoopPhiReg(MachineInstr *Phi, MachineBasicBlock *LoopBB) {
+	for (unsigned i = 1, e = Phi->getNumOperands(); i != e; i += 2)
+	if (Phi->getOperand(i + 1).getMBB() == LoopBB)
+		return Phi->getOperand(i).getReg();
+	return 0;
+}
+static bool isSlot0_Mov(MachineInstr *MI){
 	switch (MI->getOpcode())
 	{
 	case DSP::MovG2V10:
@@ -285,7 +346,7 @@ bool isSlot0_Mov(MachineInstr *MI){
 	}
 }
 
-bool isSlot01_Mov(MachineInstr *MI){
+static bool isSlot01_Mov(MachineInstr *MI){
 	switch (MI->getOpcode())
 	{
 	default:return false;
@@ -440,7 +501,111 @@ void SwingSchedulerDAG::schedule(){
 		std::cout << "su op" << SU.getInstr()->getOpcode() << std::endl;
 	}
 }
+
+//create the adjacency structure of the nodes in the graph
+void SwingSchedulerDAG::Circuits::createAdjacencyStructure(SwingSchedulerDAG *DAG){
+	BitVector Added(SUnits.size());
+	for (int i = 0, e = SUnits.size(); i != e; i++){
+		Added.reset();
+		// Add any successor to the adjacency matrix and exclude duplicates.
+		for each (auto &SI in SUnits[i].Succs)
+		{
+			if (SI.getKind() == SDep::Anti&&!SI.getSUnit()->getInstr()->isPHI())
+				continue;
+			int N = SI.getSUnit()->NodeNum;
+			if (!Added.test(N))
+			{
+				AdjK[i].push_back(N);
+				Added.set(N);
+			}
+		}
+
+		// A chain edge between a store and a load is treated as a back-edge in the
+		// adjacency matrix.
+
+		for(auto &PI :SUnits[i].Preds){
+			if (!SUnits[i].getInstr()->mayLoad())
+				continue;
+		}
+	}
+}
+
+bool SwingSchedulerDAG::isLoopCarriedOrder(SUnit *Source, const SDep &Dep,
+	bool isSucc) {
+	if (!isOrder(Source, Dep) || Dep.isArtificial())
+		return false;
+
+	//if (!SwpPruneLoopCarried)
+		//return true;
+
+	MachineInstr *SI = Source->getInstr();
+	MachineInstr *DI = Dep.getSUnit()->getInstr();
+	if (!isSucc)
+		std::swap(SI, DI);
+	assert(SI != nullptr && DI != nullptr && "Expecting SUnit with an MI.");
+
+	// Assume ordered loads and stores may have a loop carried dependence.
+	if (SI->hasUnmodeledSideEffects() || DI->hasUnmodeledSideEffects() ||
+		SI->hasOrderedMemoryRef() || DI->hasOrderedMemoryRef())
+		return true;
+
+	// Only chain dependences between a load and store can be loop carried.
+	if (!DI->mayStore() || !SI->mayLoad())
+		return false;
+
+	unsigned DeltaS, DeltaD;
+	if (!computeDelta(SI, DeltaS) || !computeDelta(DI, DeltaD))
+		return true;
+
+	unsigned BaseRegS, OffsetS, BaseRegD, OffsetD;
+	const TargetRegisterInfo *TRI = MF.getTarget().getRegisterInfo();
+	if (!TII->getLdStBaseRegImmOfs(SI, BaseRegS, OffsetS, TRI) ||
+		!TII->getLdStBaseRegImmOfs(DI, BaseRegD, OffsetD, TRI))
+		return true;
+
+	if (BaseRegS != BaseRegD)
+		return true;
+
+	uint64_t AccessSizeS = (*SI->memoperands_begin())->getSize();
+	uint64_t AccessSizeD = (*DI->memoperands_begin())->getSize();
+
+	// This is the main test, which checks the offset values and the loop
+	// increment value to determine if the accesses may be loop carried.
+	if (OffsetS >= OffsetD)
+		return OffsetS + AccessSizeS > DeltaS;
+	else if (OffsetS < OffsetD)
+		return OffsetD + AccessSizeD > DeltaD;
+
+	return true;
+}
+
+/// Return true if we can compute the amount the instruction changes
+/// during each iteration. Set Delta to the amount of the change.
+bool SwingSchedulerDAG::computeDelta(MachineInstr *MI, unsigned &Delta) {
+	const TargetRegisterInfo *TRI = MF.getTarget().getRegisterInfo();
+	unsigned BaseReg, Offset;
+	if (!TII->getLdStBaseRegImmOfs(MI, BaseReg, Offset, TRI))
+		return false;
+
+	MachineRegisterInfo &MRI = MF.getRegInfo();
+	// Check if there is a Phi. If so, get the definition in the loop.
+	MachineInstr *BaseDef = MRI.getVRegDef(BaseReg);
+	if (BaseDef && BaseDef->isPHI()) {
+		BaseReg = getLoopPhiReg(BaseDef, MI->getParent());
+		BaseDef = MRI.getVRegDef(BaseReg);
+	}
+	if (!BaseDef)
+		return false;
+
+	int D;
+	if (!TII->getIncrementValue(BaseDef, D) || D < 0)
+		return false;
+
+	Delta = D;
+	return true;
+}
 void  SwingSchedulerDAG::findRecCircuits(NodeSetType node){
+	Circuits cir(SUnits);
 
 }
 
