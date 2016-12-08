@@ -601,8 +601,8 @@ bool SwingSchedulerDAG::computeDelta(MachineInstr *MI, unsigned &Delta) {
 		return false;
 
 	int D;
-	if (!TII->getIncrementValue(BaseDef, D) || D < 0)
-		return false;
+	//if (!TII->getIncrementValue(BaseDef, D) || D < 0)
+		//return false;
 
 	Delta = D;
 	return true;

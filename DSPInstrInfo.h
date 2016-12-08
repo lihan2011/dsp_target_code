@@ -98,6 +98,12 @@ namespace llvm{
 		DFAPacketizer *CreateTargetScheduleState(const TargetMachine *TM,
 			const ScheduleDAG *DAG) const;
 
+		bool analyzeCompare(const MachineInstr * MI, unsigned & SrcReg, unsigned & SrcReg2, int & Mask, int & Value) const;
+
+		bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB, MachineBasicBlock *&FBB,
+			SmallVectorImpl<MachineOperand> &Cond,
+			bool AllowModify,
+			bool isLoop) const;
 		//unsigned CaculateNumOfMemInst(MachineLoop *L);
 		//unsigned CaculateNumOfAluInst(MachineLoop *L);
 	};

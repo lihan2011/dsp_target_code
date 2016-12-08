@@ -92,6 +92,28 @@ static void AnalyzeCondBr(const MachineInstr *Inst, unsigned Opc,
 	int NumOp = Inst->getNumExplicitOperands();
 	// for both int and fp branches, the last explicit operand is the
 	// MBB.
+
+	for (int i = 0; i <= NumOp - 1; i++)
+		std::cout << " the type: " << Inst->getOperand(i).getType() << std::endl;
+
+	BB = Inst->getOperand(NumOp - 1).getMBB();
+	Cond.push_back(MachineOperand::CreateImm(Opc));
+
+	for (int i = 0; i<NumOp - 1; i++)
+		Cond.push_back(Inst->getOperand(i));
+}
+
+///Just for HardwareLoop.cpp to invoke where needs the cmpRegister in /p Cond.
+static void AnalyzeLoopCondBr(const MachineInstr *Inst, unsigned Opc,
+	MachineBasicBlock *&BB,
+	SmallVectorImpl<MachineOperand> &Cond) {
+	assert(getAnalyzableBrOpc(Opc) && "Not an analyzable branch");
+	//?? I don't know whether it can get all operands including the implicit 
+	int NumOp = Inst->getNumOperands();
+
+	for (int i = 0; i < NumOp - 1; i++)
+		std::cout << " the type: " << Inst->getOperand(i).getType() << std::endl;
+
 	BB = Inst->getOperand(NumOp - 1).getMBB();
 	Cond.push_back(MachineOperand::CreateImm(Opc));
 
@@ -142,6 +164,7 @@ const SmallVectorImpl<MachineOperand> &Cond) const {
 /// If AllowModify is true, then this routine is allowed to modify the basic
 /// block (e.g. delete instructions after the unconditional branch).
 ///
+
 bool DSPInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB, MachineBasicBlock *&FBB,
 	SmallVectorImpl<MachineOperand> &Cond,
 	bool AllowModify) const {
@@ -317,3 +340,181 @@ const ScheduleDAG *DAG) const {
 	return TM->getSubtarget<DSPGenSubtargetInfo>().createDFAPacketizer(II);
 }
 
+/// \brief For a comparison instruction, return the source registers in
+/// \p SrcReg and \p SrcReg2 if having two register operands, and the value it
+/// compares against in CmpValue. Return true if the comparison instruction
+/// can be analyzed.
+bool DSPInstrInfo::analyzeCompare(const MachineInstr *MI,
+	unsigned &SrcReg, unsigned &SrcReg2,
+	int &Mask, int &Value) const {
+	unsigned Opc = MI->getOpcode();
+
+	// Set mask and the first source register.
+	switch (Opc) {
+	case DSP::EQ:
+	case DSP::EQI:
+	case DSP::NEQ:
+	case DSP::NEQI:
+	case DSP::GE:
+	case DSP::GEI:
+	case DSP::GEU:
+	case DSP::GT:
+	case DSP::GTI:
+	case DSP::GTU:
+	case DSP::LE:
+	case DSP::LEI:
+	case DSP::LEU:
+	case DSP::LT:
+	case DSP::LTI:
+	case DSP::LTU:
+		SrcReg = MI->getOperand(1).getReg();
+		Mask = ~0;	//I don't know what this mask mean
+		break;
+	case DSP::veq_10:
+	case DSP::veq_20:
+	case DSP::veq_40:
+	case DSP::vgt_10:
+	case DSP::vgt_20:
+	case DSP::vgt_40:
+	case DSP::vlt_10:
+	case DSP::vlt_20:
+	case DSP::vlt_40:
+	case DSP::vge_10:
+	case DSP::vge_20:
+	case DSP::vge_40:
+	case DSP::vle_10:
+	case DSP::vle_20:
+	case DSP::vle_40:
+		SrcReg = MI->getOperand(1).getReg();
+		Mask = 0xFFFF;	//I don't know what this mask mean
+		break;
+	}
+
+	// Set the value/second source register.
+	switch (Opc) {
+	case DSP::EQ:
+	case DSP::NEQ:
+	case DSP::GE:
+	case DSP::GEU:
+	case DSP::GT:
+	case DSP::GTU:
+	case DSP::LE:
+	case DSP::LEU:
+	case DSP::LT:
+	case DSP::LTU:
+	case DSP::veq_10:
+	case DSP::veq_20:
+	case DSP::veq_40:
+	case DSP::vgt_10:
+	case DSP::vgt_20:
+	case DSP::vgt_40:
+	case DSP::vlt_10:
+	case DSP::vlt_20:
+	case DSP::vlt_40:
+	case DSP::vge_10:
+	case DSP::vge_20:
+	case DSP::vge_40:
+	case DSP::vle_10:
+	case DSP::vle_20:
+	case DSP::vle_40:
+		SrcReg2 = MI->getOperand(2).getReg();
+		return true;
+
+	case DSP::EQI:
+	case DSP::NEQI:
+	case DSP::GEI:
+	case DSP::GTI:
+	case DSP::LEI:
+	case DSP::LTI:
+		SrcReg2 = 0;
+		Value = MI->getOperand(2).getImm();
+		return true;
+	}
+
+	return false;
+}
+
+///Overloading AnalyzeBranch for DSPHardwareLoop.cpp, which needs the cmpRegister included in \p Cond.
+/// # of condition operands:
+///  Unconditional branches: 0
+///  Conditiondl Branch: 2 (opc, reg(killed)) eg. JC or JNC
+bool llvm::DSPInstrInfo::AnalyzeBranch(MachineBasicBlock & MBB, MachineBasicBlock *& TBB, MachineBasicBlock *& FBB, 
+	SmallVectorImpl<MachineOperand>& Cond, 
+	bool AllowModify, 
+	bool isLoop) const
+{
+	//std::cout << "Mbb name" << MBB.getName().data() << std::endl;
+	MachineBasicBlock::reverse_iterator I = MBB.rbegin(), REnd = MBB.rend();
+	while (I != REnd&&I->isDebugValue())
+		++I;
+	if (I == REnd || !isUnpredicatedTerminator(&*I)) {
+		// This block ends with no branches (it just falls through to its succ).
+		// Leave TBB/FBB null. case 1
+		TBB = FBB = nullptr;
+		return false;
+	}
+
+	MachineInstr *LastInst = &*I;
+	unsigned LastOpc = LastInst->getOpcode();
+
+	if (!getAnalyzableBrOpc(LastOpc))
+		return true;
+	unsigned SecondLastOpc = 0;
+	MachineInstr *SecondLastInst = nullptr;
+
+	if (++I != REnd) {
+		SecondLastInst = &*I;
+		SecondLastOpc = getAnalyzableBrOpc(SecondLastInst->getOpcode());
+
+
+		// Not an analyzable branch (must be an indirect jump).
+		if (isUnpredicatedTerminator(SecondLastInst) && !SecondLastOpc)
+			return false;
+	}
+
+	// If there is only one terminator instruction, process it.
+	if (!SecondLastOpc) {
+		//case 2
+		if (LastOpc == DSP::Jmp) {
+			TBB = LastInst->getOperand(0).getMBB();
+			return false;
+		}
+
+		// Conditional branch
+		AnalyzeLoopCondBr(LastInst, LastOpc, TBB, Cond);
+		return false;
+	}
+
+	// If we reached here, there are two branches.
+	// If there are three terminators, we don't know what sort of block this is.
+	if (++I != REnd && isUnpredicatedTerminator(&*I))
+		return true;
+
+	// If second to last instruction is an unconditional branch,
+	// analyze it and remove the last instruction.
+	if (SecondLastOpc == DSP::Jmp) {
+		// Return if the last instruction cannot be removed.
+		if (!AllowModify)
+			return true;
+
+		TBB = SecondLastInst->getOperand(0).getMBB();
+		LastInst->eraseFromParent();
+		//BranchInstrs.pop_back();
+		return false;
+	}
+
+
+	// Conditional branch followed by an unconditional branch.
+	// The last one must be unconditional.
+	if (LastOpc != DSP::Jmp)
+		return true;
+
+	//std::cout << "?????" << std::endl;
+
+	AnalyzeLoopCondBr(SecondLastInst, SecondLastOpc, TBB, Cond);
+	FBB = LastInst->getOperand(0).getMBB();
+
+
+
+	return false;
+}
