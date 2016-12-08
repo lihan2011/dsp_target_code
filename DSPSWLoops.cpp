@@ -707,7 +707,7 @@ void SwingSchedulerDAG::computeNodeFunctions(NodeSetType &NodeSets){
 	DEBUG({
 		for (unsigned i = 0; i < SUnits.size(); i++) {
 			dbgs() << "\tNode " << i << ":\n";
-			dbgs() << "\t   ASAP = " << getASAP(&SUnits[i]) << "\n";
+			dbgs() << "\t   ASAP = " << getASAP(&SUnits[i]) << "\t";
 			dbgs() << "\t   ALAP = " << getALAP(&SUnits[i]) << "\n";
 			dbgs() << "\t   MOV  = " << getMOV(&SUnits[i]) << "\n";
 			dbgs() << "\t   D    = " << getDepth(&SUnits[i]) << "\n";
