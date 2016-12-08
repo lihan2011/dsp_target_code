@@ -55,6 +55,9 @@ namespace llvm {
 
 namespace {
 	class NodeSet;
+
+	typedef SmallVector<NodeSet, 8> NodeSetType;
+
 	class DSPSWLoops : public MachineFunctionPass{
 	public:
 		static char ID;
@@ -105,65 +108,8 @@ namespace {
 		bool swingModuloScheduler(MachineLoop *L);
 		bool canPipelineLoop(MachineLoop *L);
 
-		class InstructionTrace
-		{
-		public:
-			InstructionTrace() :weight(0){}
-			InstructionTrace(const InstructionTrace  &IT) :trace(IT.trace), weight(IT.weight){}
-			//~InstructionTrace();
 
-			void add(Instruction *I){
-				trace.push_back(I);
-				weight += 1;
-			}
-
-			unsigned getWeight(){
-				return weight;
-			}
-
-			const SmallVector<Instruction*, 8> &data() const {
-				return trace;
-			}
-
-			size_t size() {
-				return trace.size();
-			}
-
-			const Instruction* find(Instruction *I) const {
-				for (auto II = trace.begin(),E = trace.end(); II !=E; II++)
-					if (*II == I) return *II;
-				return nullptr;
-			
-			}
-
-			//overload the < operator  I < J == I.<(J) return a bool value
-
-			bool operator < (const InstructionTrace &I)const {
-				return weight <= I.weight&&this != &I;
-			}
-		private:
-			SmallVector<Instruction*, 8> trace;
-			unsigned weight;
-
-		};
-
-		typedef std::set<InstructionTrace> CycleSet;
-		//caculate the resource minimal initial interval
-		unsigned calculateResMII(MachineLoop *L);
-
-		//caculate the recursion minimal initial interval
-		unsigned calculateRecMII(MachineLoop *L, CycleSet &C);
-
-
-		// Helper function to find loop dependency cycles through phi nodes
-		void getPhiCycles(MachineInstr *I,const PHINode *Phi,InstructionTrace trace,CycleSet &cycles);
-
-		bool getConnectingNodes(Instruction *I,
-			const BasicBlock *MBB,
-			DenseMap<Instruction*, bool> &VisitedNodes,
-			std::vector<Instruction *> &connectionNodes,
-			bool direction
-			);
+		
 	};
 
 
@@ -188,7 +134,6 @@ namespace {
 
 		SetVector<SUnit*> NodeOrder;
 		std::vector<NodeInfo> ScheduleInfo;
-		typedef SmallVector<NodeSet, 8> NodeSetType;
 	public :
 		
 		/// Helper class to implement Johnson's circuit finding algorithm.
@@ -215,6 +160,7 @@ namespace {
 			void createAdjacencyStructure(SwingSchedulerDAG *DAG);
 			bool circuit(int V, int S, NodeSetType &NodeSets, bool HasBackedge = false);
 			void unblock(int U);
+
 		};
 
 		
@@ -243,18 +189,56 @@ namespace {
 		/// The height, in the dependence graph, for a node.
 		int getHeight(SUnit *Node) { return Node->getHeight(); }
 
-		bool isLoopCarriedOrder(SUnit *SU);
 
 	private:
-		void findRecCircuits(NodeSetType nodeset);
+		void findCircuits(NodeSetType &NodeSets);
 
 		bool isLoopCarriedOrder(SUnit *Source, const SDep &Dep, bool isSucc);
 
+		void updatePhiDependences();
+
 		bool computeDelta(MachineInstr *MI, unsigned &Delta);
 
+		//caculate the resource minimal initial interval
+		unsigned calculateResMII(MachineLoop *L);
+
+		//caculate the recursion minimal initial interval
+		unsigned calculateRecMII(MachineLoop *L);
+
+		void computeNodeFunctions(NodeSetType &NodeSets);
+
+		/// The latency of the dependence.
+		unsigned getLatency(SUnit *Source, const SDep &Dep) {
+			// Anti dependences represent recurrences, so use the latency of the
+			// instruction on the back-edge.
+			if (Dep.getKind() == SDep::Anti) {
+				if (Source->getInstr()->isPHI())
+					return Dep.getSUnit()->Latency;
+				if (Dep.getSUnit()->getInstr()->isPHI())
+					return Source->Latency;
+				return Dep.getLatency();
+			}
+			return Dep.getLatency();
+		}
+
+
+		/// The distance function, which indicates that operation V of iteration I
+		/// depends on operations U of iteration I-distance.
+		unsigned getDistance(SUnit *U, SUnit *V, const SDep &Dep) {
+			// Instructions that feed a Phi have a distance of 1. Computing larger
+			// values for arrays requires data dependence information.
+			if (V->getInstr()->isPHI() && Dep.getKind() == SDep::Anti)
+				return 1;
+			return 0;
+		}
+
+		void colocateNodeSets(NodeSetType &NodeSets);
+
+		void computeNodeOrder(NodeSetType &NodeSets);
 	};
 
 	class NodeSet{
+	public:
 		SetVector<SUnit*> Nodes;
 		bool hasRecurrence;
 		unsigned RecMII;
@@ -269,7 +253,7 @@ namespace {
 
 		template <typename It>
 		NodeSet(It S, It E)
-			: Nodes(S, E), HasRecurrence(true), RecMII(0), MaxMOV(0), MaxDepth(0),
+			: Nodes(S, E), hasRecurrence(true), RecMII(0), MaxMov(0), MaxDepth(0),
 			Colocate(0), ExceedPressure(nullptr) {}
 		unsigned size() const { return Nodes.size(); }
 
@@ -308,7 +292,7 @@ namespace {
 } // end anonymous namespace
 
 char DSPSWLoops::ID = 0;
-
+unsigned SwingSchedulerDAG::Circuits::MaxPaths = 5;
 INITIALIZE_PASS_BEGIN(DSPSWLoops,"DSPSWLoops", "SoftWare Pipeline",false,false)
 INITIALIZE_PASS_DEPENDENCY(MachineLoopInfo)
 INITIALIZE_PASS_END(DSPSWLoops, "DSPSWLoops", "SoftWare Pipeline",false,false)
@@ -355,51 +339,15 @@ static bool isSlot01_Mov(MachineInstr *MI){
 }
 
 
-// Helper function to find the nodes located at any path between the previous
-// and current recurrence.
-bool DSPSWLoops::getConnectingNodes(Instruction *I,
-	const BasicBlock *B,
-	DenseMap<Instruction *, bool> &VisitedNodes,
-	std::vector<Instruction *> &connectingNodes,
-	bool direction)
-{
-	// Do not recurse over nodes outside of the current loop body
-	if (I->getParent() != B) return false;
-
-	// Recurse until a previously visited node is found
-	if (VisitedNodes[I]) return true;
-
-	// Recurse through operands/uses depending on direction
-	bool found = false;
-	if (direction) {
-		// avoid backedges
-		if (isa<PHINode>(I)) return false;
-
-		// search upwards
-		for (auto &O : I->operands()) {
-			Instruction *II = dyn_cast<Instruction>(O);
-			if (II)
-				found |= getConnectingNodes(II, B, VisitedNodes, connectingNodes, direction);
-		}
-	}
-	else {
-		// search downwards
-		for (auto U : I->users()) {
-			if (isa<PHINode>(U)) continue;
-			Instruction *II = dyn_cast<Instruction>(U);
-			if (II)
-				found |= getConnectingNodes(II, B, VisitedNodes, connectingNodes, direction);
-		}
-	}
-
-	// Add current node to the visited list and to the connecting nodes if a path was found
-	if (found) {
-		VisitedNodes[I] = true;
-		connectingNodes.push_back(I);
-	}
-
-	return found;
+/// Return true for DAG nodes that we ignore when computing the cost functions.
+/// We ignore the back-edge recurrence in order to avoid unbounded recurison
+/// in the calculation of the ASAP, ALAP, etc functions.
+static bool ignoreDependence(const SDep &D, bool isPred) {
+	if (D.isArtificial())
+		return true;
+	return D.getKind() == SDep::Anti && isPred;
 }
+
 
 
 //********************************
@@ -416,7 +364,7 @@ bool DSPSWLoops::canPipelineLoop(MachineLoop *L){
 
 //4 slots
 //see DSPSchedule.td
-unsigned DSPSWLoops::calculateResMII(MachineLoop *L){
+unsigned SwingSchedulerDAG::calculateResMII(MachineLoop *L){
 	unsigned NumofSlot2_3Inst = 0;
 	unsigned NumOfSlot0Instr = 0;
 	unsigned NumOfSlot0_1Instr = 0;
@@ -452,7 +400,7 @@ unsigned DSPSWLoops::calculateResMII(MachineLoop *L){
 
 
 
-unsigned DSPSWLoops::calculateRecMII(MachineLoop *L, CycleSet &C){
+unsigned SwingSchedulerDAG::calculateRecMII(MachineLoop *L){
 	MachineBasicBlock *LoopBody = L->getBlocks()[0];
 	for (auto I = LoopBody->begin(),E = LoopBody->end(); I != E; I++)
 	{
@@ -460,7 +408,6 @@ unsigned DSPSWLoops::calculateRecMII(MachineLoop *L, CycleSet &C){
 		{
 			continue;
 		}
-		InstructionTrace tr;
 		//getPhiCycles(Phi, Phi, tr, C);
 	}
 	return 2;
@@ -496,15 +443,21 @@ void SwingSchedulerDAG::schedule(){
 	AliasAnalysis *AA = pass.AA;
 	buildSchedGraph(AA);
 	Topo.InitDAGTopologicalSorting();
-	for each (auto SU in SUnits)
-	{
-		std::cout << "su op" << SU.getInstr()->getOpcode() << std::endl;
-	}
+	std::cout << "after build sg" << std::endl;
+	NodeSetType NodeSets;
+	findCircuits(NodeSets);
+
+	unsigned ResMII = calculateResMII(&L);
+	std::cout << "resMII" << ResMII << std::endl;
+
+	unsigned MII = ResMII;
+
+	computeNodeFunctions(NodeSets);
 }
 
 //create the adjacency structure of the nodes in the graph
 void SwingSchedulerDAG::Circuits::createAdjacencyStructure(SwingSchedulerDAG *DAG){
-	BitVector Added(SUnits.size());
+	BitVector Added(SUnits.size() + 1);
 	for (int i = 0, e = SUnits.size(); i != e; i++){
 		Added.reset();
 		// Add any successor to the adjacency matrix and exclude duplicates.
@@ -512,8 +465,11 @@ void SwingSchedulerDAG::Circuits::createAdjacencyStructure(SwingSchedulerDAG *DA
 		{
 			if (SI.getKind() == SDep::Anti&&!SI.getSUnit()->getInstr()->isPHI())
 				continue;
+
+			// N represent position in SUnits
 			int N = SI.getSUnit()->NodeNum;
-			if (!Added.test(N))
+			unsigned Op = SI.getSUnit()->getInstr()->getOpcode();
+			if (N>=0&&!Added.test(N))
 			{
 				AdjK[i].push_back(N);
 				Added.set(N);
@@ -522,12 +478,59 @@ void SwingSchedulerDAG::Circuits::createAdjacencyStructure(SwingSchedulerDAG *DA
 
 		// A chain edge between a store and a load is treated as a back-edge in the
 		// adjacency matrix.
-
-		for(auto &PI :SUnits[i].Preds){
-			if (!SUnits[i].getInstr()->mayLoad())
+		for (auto &PI : SUnits[i].Preds) {
+			if (!SUnits[i].getInstr()->mayStore() ||
+				!DAG->isLoopCarriedOrder(&SUnits[i], PI, false))
 				continue;
+			if (PI.getKind() == SDep::Order && PI.getSUnit()->getInstr()->mayLoad()&&PI.getSUnit()->getInstr()->isTerminator()) {
+				int N = PI.getSUnit()->NodeNum;
+				if (N>=0&&!Added.test(N)) {
+					AdjK[i].push_back(N);
+					Added.set(N);
+				}
+			}
 		}
 	}
+}
+
+/// Identify an elementary circuit in the dependence graph.
+bool SwingSchedulerDAG::Circuits::circuit(int V, int S, NodeSetType &NodeSets,bool HasBackedge){
+	SUnit *SV = &SUnits[V];
+	bool F = false;
+	Stack.insert(SV);
+	Blocked.set(V);
+
+	for (auto W : AdjK[V]) {
+		if (NumPaths > MaxPaths)
+			break;
+		if (W < S)
+			continue;
+		if (W == S) {
+			if (!HasBackedge)
+				NodeSets.push_back(NodeSet(Stack.begin(), Stack.end()));
+			F = true;
+			++NumPaths;
+			break;
+		}
+		else if (!Blocked.test(W)) {
+			if (circuit(W, S, NodeSets, W < V ? true : HasBackedge))
+				F = true;
+		}
+	}
+
+	if (F)
+		unblock(V);
+	else {
+		for (auto W : AdjK[V]) {
+			if (W < S)
+				continue;
+			if (B[W].count(SV) == 0)
+				B[W].insert(SV);
+		}
+	}
+	Stack.pop_back();
+	return F;
+	return false;
 }
 
 bool SwingSchedulerDAG::isLoopCarriedOrder(SUnit *Source, const SDep &Dep,
@@ -604,8 +607,113 @@ bool SwingSchedulerDAG::computeDelta(MachineInstr *MI, unsigned &Delta) {
 	Delta = D;
 	return true;
 }
-void  SwingSchedulerDAG::findRecCircuits(NodeSetType node){
-	Circuits cir(SUnits);
+void  SwingSchedulerDAG::findCircuits(NodeSetType &NodeSets){
+
+	Circuits Cir(SUnits);
+	Cir.createAdjacencyStructure(this);
+
+	for (int i = 0, e = SUnits.size(); i != e; ++i) {
+		Cir.reset();
+		Cir.circuit(i, i, NodeSets);
+	}
+
+}
+
+void SwingSchedulerDAG::Circuits::unblock(int U){
+	Blocked.reset(U);
+	SmallPtrSet<SUnit *, 4> &BU = B[U];
+	while (!BU.empty()) {
+		SmallPtrSet<SUnit *, 4>::iterator SI = BU.begin();
+		assert(SI != BU.end() && "Invalid B set.");
+		SUnit *W = *SI;
+		BU.erase(W);
+		if (Blocked.test(W->NodeNum))
+			unblock(W->NodeNum);
+	}
+}
+
+
+/// Update the phi dependences to the DAG because ScheduleDAGInstrs no longer
+/// processes dependences for PHIs. This function adds true dependences
+/// from a PHI to a use, and a loop carried dependence from the use to the
+/// PHI. The loop carried dependence is represented as an anti dependence
+/// edge. This function also removes chain dependences between unrelated
+/// PHIs.
+void SwingSchedulerDAG::updatePhiDependences(){
+
+}
+
+void SwingSchedulerDAG::computeNodeFunctions(NodeSetType &NodeSets){
+	ScheduleInfo.resize(SUnits.size());
+
+	DEBUG({
+		for (ScheduleDAGTopologicalSort::const_iterator I = Topo.begin(),
+		E = Topo.end();
+		I != E; ++I) {
+			SUnit *SU = &SUnits[*I];
+			SU->dump(this);
+		}
+	});
+
+	int maxASAP = 0;
+	// Compute ASAP.
+	for (ScheduleDAGTopologicalSort::const_iterator I = Topo.begin(),
+		E = Topo.end();
+		I != E; ++I) {
+		int asap = 0;
+		SUnit *SU = &SUnits[*I];
+		for (SUnit::const_pred_iterator IP = SU->Preds.begin(),
+			EP = SU->Preds.end();
+			IP != EP; ++IP) {
+			if (ignoreDependence(*IP, true))
+				continue;
+			SUnit *pred = IP->getSUnit();
+			// see paper 4.1
+			asap = std::max(asap, (int)(getASAP(pred) + getLatency(SU, *IP) -
+				getDistance(pred, SU, *IP) * MII));
+		}
+		maxASAP = std::max(maxASAP, asap);
+		ScheduleInfo[*I].ASAP = asap;
+	}
+	std::cout << "ASAP " << std::endl;
+	//compute ALAP
+	for (ScheduleDAGTopologicalSort::const_iterator I = Topo.begin(),
+		E = Topo.end(); I != E; ++I)
+	{
+		int alap =maxASAP;
+		SUnit *SU = &SUnits[*I];
+		for (SUnit::const_succ_iterator IS = SU->Succs.begin(), ES = SU->Succs.end(); IS != ES; ++IS)
+		{
+			if (ignoreDependence(*IS, true))
+				continue;
+			SUnit *succ = IS->getSUnit();
+			if (succ->getInstr()->isTerminator())
+				continue;
+			std::cout << getLatency(SU, *IS) << std::endl;
+			alap = std::min(alap, (int)(getALAP(succ) - getLatency(SU, *IS) + getDistance(succ, SU, *IS)* MII));
+		}
+		ScheduleInfo[*I].ALAP = alap;
+	}
+
+
+
+	/*for (NodeSet &I : NodeSets){
+		for (SUnit* su : I){
+			I.MaxMov = std::max(I.MaxMov, this->getMOV(su));
+			I.MaxDepth = std::max(I.MaxDepth, this->getDepth(su));
+		}
+	}*/
+
+	DEBUG({
+		for (unsigned i = 0; i < SUnits.size(); i++) {
+			dbgs() << "\tNode " << i << ":\n";
+			dbgs() << "\t   ASAP = " << getASAP(&SUnits[i]) << "\n";
+			dbgs() << "\t   ALAP = " << getALAP(&SUnits[i]) << "\n";
+			dbgs() << "\t   MOV  = " << getMOV(&SUnits[i]) << "\n";
+			dbgs() << "\t   D    = " << getDepth(&SUnits[i]) << "\n";
+			dbgs() << "\t   H    = " << getHeight(&SUnits[i]) << "\n";
+		}
+	});
 
 }
 
