@@ -132,6 +132,8 @@ namespace {
 			NodeInfo() :ASAP(0), ALAP(0){};
 		};
 
+		enum OrderKind{ BottomUp = 0, TopDown = 1 };
+
 		SetVector<SUnit*> NodeOrder;
 		std::vector<NodeInfo> ScheduleInfo;
 	public :
@@ -257,6 +259,15 @@ namespace {
 			Colocate(0), ExceedPressure(nullptr) {}
 		unsigned size() const { return Nodes.size(); }
 
+		unsigned count(SUnit *SU) const { return Nodes.count(SU); }
+
+		bool isExceedSU(SUnit *SU) { return ExceedPressure == SU; }
+
+		SUnit *getNode(unsigned i) const { return Nodes[i]; };
+
+		bool insert(SUnit *SU) { return Nodes.insert(SU); }
+
+		void insert(iterator S, iterator E) { Nodes.insert(S, E); }
 		void clear() {
 			Nodes.clear();
 			RecMII = 0;
@@ -348,8 +359,100 @@ static bool ignoreDependence(const SDep &D, bool isPred) {
 	return D.getKind() == SDep::Anti && isPred;
 }
 
+/// Compute the Pred_L(O) set, as defined in the paper. The set is defined
+/// as the predecessors of the elements of NodeOrder that are not also in
+/// NodeOrder.
+static bool pred_L(SetVector<SUnit *> &NodeOrder,
+	SmallSetVector<SUnit *, 8> &Preds,
+	const NodeSet *S = nullptr) {
+	Preds.clear();
+	for (SetVector<SUnit *>::iterator I = NodeOrder.begin(), E = NodeOrder.end();
+		I != E; ++I) {
+		for (SUnit::pred_iterator PI = (*I)->Preds.begin(), PE = (*I)->Preds.end();
+			PI != PE; ++PI) {
+			if (S && S->count(PI->getSUnit()) == 0)
+				continue;
+			if (ignoreDependence(*PI, true))
+				continue;
+			if (NodeOrder.count(PI->getSUnit()) == 0)
+				Preds.insert(PI->getSUnit());
+		}
+		// Back-edges are predecessors with an anti-dependence.
+		for (SUnit::const_succ_iterator IS = (*I)->Succs.begin(),
+			ES = (*I)->Succs.end();
+			IS != ES; ++IS) {
+			if (IS->getKind() != SDep::Anti)
+				continue;
+			if (S && S->count(IS->getSUnit()) == 0)
+				continue;
+			if (NodeOrder.count(IS->getSUnit()) == 0)
+				Preds.insert(IS->getSUnit());
+		}
+	}
+	return Preds.size() > 0;
+}
 
+/// Compute the Succ_L(O) set, as defined in the paper. The set is defined
+/// as the successors of the elements of NodeOrder that are not also in
+/// NodeOrder.
+static bool succ_L(SetVector<SUnit *> &NodeOrder,
+	SmallSetVector<SUnit *, 8> &Succs,
+	const NodeSet *S = nullptr) {
+	Succs.clear();
+	for (SetVector<SUnit *>::iterator I = NodeOrder.begin(), E = NodeOrder.end();
+		I != E; ++I) {
+		for (SUnit::succ_iterator SI = (*I)->Succs.begin(), SE = (*I)->Succs.end();
+			SI != SE; ++SI) {
+			if (S && S->count(SI->getSUnit()) == 0)
+				continue;
+			if (ignoreDependence(*SI, false))
+				continue;
+			if (NodeOrder.count(SI->getSUnit()) == 0)
+				Succs.insert(SI->getSUnit());
+		}
+		for (SUnit::const_pred_iterator PI = (*I)->Preds.begin(),
+			PE = (*I)->Preds.end();
+			PI != PE; ++PI) {
+			if (PI->getKind() != SDep::Anti)
+				continue;
+			if (S && S->count(PI->getSUnit()) == 0)
+				continue;
+			if (NodeOrder.count(PI->getSUnit()) == 0)
+				Succs.insert(PI->getSUnit());
+		}
+	}
+	return Succs.size() > 0;
+}
 
+/// Return true if Set1 is a subset of Set2.
+template <class S1Ty, class S2Ty> 
+static bool isSubset(S1Ty &Set1, S2Ty &Set2) {
+	for (typename S1Ty::iterator I = Set1.begin(), E = Set1.end(); I != E; ++I)
+	if (Set2.count(*I) == 0)
+		return false;
+	return true;
+}
+
+/// Return true if Set1 contains elements in Set2. The elements in common
+/// are returned in a different container.
+static bool isIntersect(SmallSetVector<SUnit *, 8> &Set1, const NodeSet &Set2,
+	SmallSetVector<SUnit *, 8> &Result) {
+	Result.clear();
+	for (unsigned i = 0, e = Set1.size(); i != e; ++i) {
+		SUnit *SU = Set1[i];
+		if (Set2.count(SU) != 0)
+			Result.insert(SU);
+	}
+	return !Result.empty();
+}
+
+/// Return true if Inst1 defines a value that is used in Inst2.
+static bool hasDataDependence(SUnit *Inst1, SUnit *Inst2) {
+	for (auto &SI : Inst1->Succs)
+	if (SI.getSUnit() == Inst2 && SI.getKind() == SDep::Data)
+		return true;
+	return false;
+}
 //********************************
 bool DSPSWLoops::canPipelineLoop(MachineLoop *L){
 	// Check if loop body has no control flow (single BasicBlock)
@@ -453,6 +556,15 @@ void SwingSchedulerDAG::schedule(){
 	unsigned MII = ResMII;
 
 	computeNodeFunctions(NodeSets);
+
+	DEBUG({
+		for (auto &I : NodeSets) {
+			dbgs() << "  NodeSet ";
+			I.dump();
+		}
+	});
+
+	computeNodeOrder(NodeSets);
 }
 
 //create the adjacency structure of the nodes in the graph
@@ -531,6 +643,19 @@ bool SwingSchedulerDAG::Circuits::circuit(int V, int S, NodeSetType &NodeSets,bo
 	Stack.pop_back();
 	return F;
 	return false;
+}
+
+void SwingSchedulerDAG::Circuits::unblock(int U){
+	Blocked.reset(U);
+	SmallPtrSet<SUnit *, 4> &BU = B[U];
+	while (!BU.empty()) {
+		SmallPtrSet<SUnit *, 4>::iterator SI = BU.begin();
+		assert(SI != BU.end() && "Invalid B set.");
+		SUnit *W = *SI;
+		BU.erase(W);
+		if (Blocked.test(W->NodeNum))
+			unblock(W->NodeNum);
+	}
 }
 
 bool SwingSchedulerDAG::isLoopCarriedOrder(SUnit *Source, const SDep &Dep,
@@ -619,18 +744,7 @@ void  SwingSchedulerDAG::findCircuits(NodeSetType &NodeSets){
 
 }
 
-void SwingSchedulerDAG::Circuits::unblock(int U){
-	Blocked.reset(U);
-	SmallPtrSet<SUnit *, 4> &BU = B[U];
-	while (!BU.empty()) {
-		SmallPtrSet<SUnit *, 4>::iterator SI = BU.begin();
-		assert(SI != BU.end() && "Invalid B set.");
-		SUnit *W = *SI;
-		BU.erase(W);
-		if (Blocked.test(W->NodeNum))
-			unblock(W->NodeNum);
-	}
-}
+
 
 
 /// Update the phi dependences to the DAG because ScheduleDAGInstrs no longer
@@ -677,8 +791,8 @@ void SwingSchedulerDAG::computeNodeFunctions(NodeSetType &NodeSets){
 	}
 	std::cout << "ASAP " << std::endl;
 	//compute ALAP
-	for (ScheduleDAGTopologicalSort::const_iterator I = Topo.begin(),
-		E = Topo.end(); I != E; ++I)
+	for (ScheduleDAGTopologicalSort::const_reverse_iterator I = Topo.rbegin(),
+		E = Topo.rend(); I != E; ++I)
 	{
 		int alap =maxASAP;
 		SUnit *SU = &SUnits[*I];
@@ -715,6 +829,162 @@ void SwingSchedulerDAG::computeNodeFunctions(NodeSetType &NodeSets){
 		}
 	});
 
+}
+
+/// Compute an ordered list of the dependence graph nodes, which
+/// indicates the order that the nodes will be scheduled.  This is a
+/// two-level algorithm. First, a partial order is created, which
+/// consists of a list of sets ordered from highest to lowest priority.
+void SwingSchedulerDAG::computeNodeOrder(NodeSetType &NodeSets) {
+	SmallSetVector<SUnit *, 8> R;
+	NodeOrder.clear();
+
+	for (auto &Nodes : NodeSets) {
+		DEBUG(dbgs() << "NodeSet size " << Nodes.size() << "\n");
+		OrderKind Order;
+		SmallSetVector<SUnit *, 8> N;
+		if (pred_L(NodeOrder, N) && isSubset(N, Nodes)) {
+			R.insert(N.begin(), N.end());
+			Order = BottomUp;
+			DEBUG(dbgs() << "  Bottom up (preds) ");
+		}
+		else if (succ_L(NodeOrder, N) && isSubset(N, Nodes)) {
+			R.insert(N.begin(), N.end());
+			Order = TopDown;
+			DEBUG(dbgs() << "  Top down (succs) ");
+		}
+		else if (isIntersect(N, Nodes, R)) {
+			// If some of the successors are in the existing node-set, then use the
+			// top-down ordering.
+			Order = TopDown;
+			DEBUG(dbgs() << "  Top down (intersect) ");
+		}
+		else if (NodeSets.size() == 1) {
+			for (auto &N : Nodes)
+			if (N->Succs.size() == 0)
+				R.insert(N);
+			Order = BottomUp;
+			DEBUG(dbgs() << "  Bottom up (all) ");
+		}
+		else {
+			// Find the node with the highest ASAP.
+			SUnit *maxASAP = nullptr;
+			for (SUnit *SU : Nodes) {
+				if (maxASAP == nullptr || getASAP(SU) >= getASAP(maxASAP))
+					maxASAP = SU;
+			}
+			R.insert(maxASAP);
+			Order = BottomUp;
+			DEBUG(dbgs() << "  Bottom up (default) ");
+		}
+
+		while (!R.empty()) {
+			if (Order == TopDown) {
+				// Choose the node with the maximum height.  If more than one, choose
+				// the node with the lowest MOV. If still more than one, check if there
+				// is a dependence between the instructions.
+				while (!R.empty()) {
+					SUnit *maxHeight = nullptr;
+					for (SUnit *I : R) {
+						if (maxHeight == 0 || getHeight(I) > getHeight(maxHeight))
+							maxHeight = I;
+						else if (getHeight(I) == getHeight(maxHeight) &&
+							getMOV(I) < getMOV(maxHeight) &&
+							!hasDataDependence(maxHeight, I))
+							maxHeight = I;
+						else if (hasDataDependence(I, maxHeight))
+							maxHeight = I;
+					}
+					NodeOrder.insert(maxHeight);
+					DEBUG(dbgs() << maxHeight->NodeNum << " ");
+					R.remove(maxHeight);
+					for (const auto &I : maxHeight->Succs) {
+						if (Nodes.count(I.getSUnit()) == 0)
+							continue;
+						if (NodeOrder.count(I.getSUnit()) != 0)
+							continue;
+						if (ignoreDependence(I, false))
+							continue;
+						R.insert(I.getSUnit());
+					}
+					// Back-edges are predecessors with an anti-dependence.
+					for (const auto &I : maxHeight->Preds) {
+						if (I.getKind() != SDep::Anti)
+							continue;
+						if (Nodes.count(I.getSUnit()) == 0)
+							continue;
+						if (NodeOrder.count(I.getSUnit()) != 0)
+							continue;
+						R.insert(I.getSUnit());
+					}
+				}
+				Order = BottomUp;
+				DEBUG(dbgs() << "\n   Switching order to bottom up ");
+				SmallSetVector<SUnit *, 8> N;
+				if (pred_L(NodeOrder, N, &Nodes))
+					R.insert(N.begin(), N.end());
+			}
+			else {
+				// Choose the node with the maximum depth.  If more than one, choose
+				// the node with the lowest MOV. If there is still more than one, check
+				// for a dependence between the instructions.
+				while (!R.empty()) {
+					SUnit *maxDepth = nullptr;
+					for (SUnit *I : R) {
+						if (maxDepth == 0 || getDepth(I) > getDepth(maxDepth))
+							maxDepth = I;
+						else if (getDepth(I) == getDepth(maxDepth) &&
+							getMOV(I) < getMOV(maxDepth) &&
+							!hasDataDependence(I, maxDepth))
+							maxDepth = I;
+						else if (hasDataDependence(maxDepth, I))
+							maxDepth = I;
+					}
+					NodeOrder.insert(maxDepth);
+					DEBUG(dbgs() << maxDepth->NodeNum << " ");
+					R.remove(maxDepth);
+					if (Nodes.isExceedSU(maxDepth)) {
+						Order = TopDown;
+						R.clear();
+						R.insert(Nodes.getNode(0));
+						break;
+					}
+					for (const auto &I : maxDepth->Preds) {
+						if (Nodes.count(I.getSUnit()) == 0)
+							continue;
+						if (NodeOrder.count(I.getSUnit()) != 0)
+							continue;
+						if (I.getKind() == SDep::Anti)
+							continue;
+						R.insert(I.getSUnit());
+					}
+					// Back-edges are predecessors with an anti-dependence.
+					for (const auto &I : maxDepth->Succs) {
+						if (I.getKind() != SDep::Anti)
+							continue;
+						if (Nodes.count(I.getSUnit()) == 0)
+							continue;
+						if (NodeOrder.count(I.getSUnit()) != 0)
+							continue;
+						R.insert(I.getSUnit());
+					}
+				}
+				Order = TopDown;
+				DEBUG(dbgs() << "\n   Switching order to top down ");
+				SmallSetVector<SUnit *, 8> N;
+				if (succ_L(NodeOrder, N, &Nodes))
+					R.insert(N.begin(), N.end());
+			}
+		}
+		DEBUG(dbgs() << "\nDone with Nodeset\n");
+	}
+
+	DEBUG({
+		dbgs() << "Node order: ";
+		for (SUnit *I : NodeOrder)
+			dbgs() << " " << I->NodeNum << " ";
+		dbgs() << "\n";
+	});
 }
 
 bool DSPSWLoops::Process(MachineLoop *L){
