@@ -42,6 +42,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "swpipeline"
 // Helper function (copied from LoopVectorize.cpp)
+
+cl::opt<bool> EnableSwPipeline("sw-pipeline", cl::init(true), cl::Hidden, cl::desc("software pipeline opt"));
 static void addInnerLoop(Loop &L, SmallVectorImpl<Loop *> &V) {
 	if (L.empty())
 		return V.push_back(&L);
@@ -601,8 +603,8 @@ bool SwingSchedulerDAG::computeDelta(MachineInstr *MI, unsigned &Delta) {
 		return false;
 
 	int D;
-	//if (!TII->getIncrementValue(BaseDef, D) || D < 0)
-		//return false;
+	if (!TII->getIncrementValue(BaseDef, D) || D < 0)
+		return false;
 
 	Delta = D;
 	return true;
@@ -707,7 +709,7 @@ void SwingSchedulerDAG::computeNodeFunctions(NodeSetType &NodeSets){
 	DEBUG({
 		for (unsigned i = 0; i < SUnits.size(); i++) {
 			dbgs() << "\tNode " << i << ":\n";
-			dbgs() << "\t   ASAP = " << getASAP(&SUnits[i]) << "\t";
+			dbgs() << "\t   ASAP = " << getASAP(&SUnits[i]) << "\n";
 			dbgs() << "\t   ALAP = " << getALAP(&SUnits[i]) << "\n";
 			dbgs() << "\t   MOV  = " << getMOV(&SUnits[i]) << "\n";
 			dbgs() << "\t   D    = " << getDepth(&SUnits[i]) << "\n";
