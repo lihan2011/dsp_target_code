@@ -569,7 +569,7 @@ void SwingSchedulerDAG::schedule(){
 
 //create the adjacency structure of the nodes in the graph
 void SwingSchedulerDAG::Circuits::createAdjacencyStructure(SwingSchedulerDAG *DAG){
-	BitVector Added(SUnits.size() + 1);
+	BitVector Added(SUnits.size());
 	for (int i = 0, e = SUnits.size(); i != e; i++){
 		Added.reset();
 		// Add any successor to the adjacency matrix and exclude duplicates.
@@ -577,11 +577,11 @@ void SwingSchedulerDAG::Circuits::createAdjacencyStructure(SwingSchedulerDAG *DA
 		{
 			if (SI.getKind() == SDep::Anti&&!SI.getSUnit()->getInstr()->isPHI())
 				continue;
-
+			if (SI.getSUnit()->getInstr()->isTerminator())
+				continue;
 			// N represent position in SUnits
 			int N = SI.getSUnit()->NodeNum;
-			unsigned Op = SI.getSUnit()->getInstr()->getOpcode();
-			if (N>=0&&!Added.test(N))
+			if (!Added.test(N))
 			{
 				AdjK[i].push_back(N);
 				Added.set(N);
@@ -596,7 +596,7 @@ void SwingSchedulerDAG::Circuits::createAdjacencyStructure(SwingSchedulerDAG *DA
 				continue;
 			if (PI.getKind() == SDep::Order && PI.getSUnit()->getInstr()->mayLoad()&&PI.getSUnit()->getInstr()->isTerminator()) {
 				int N = PI.getSUnit()->NodeNum;
-				if (N>=0&&!Added.test(N)) {
+				if (!Added.test(N)) {
 					AdjK[i].push_back(N);
 					Added.set(N);
 				}
@@ -657,7 +657,9 @@ void SwingSchedulerDAG::Circuits::unblock(int U){
 			unblock(W->NodeNum);
 	}
 }
-
+/// Return true for an order dependence that is loop carried potentially.
+/// An order dependence is loop carried if the destination defines a value
+/// that may be used by the source in a subsequent iteration.
 bool SwingSchedulerDAG::isLoopCarriedOrder(SUnit *Source, const SDep &Dep,
 	bool isSucc) {
 	if (!isOrder(Source, Dep) || Dep.isArtificial())
@@ -739,7 +741,7 @@ void  SwingSchedulerDAG::findCircuits(NodeSetType &NodeSets){
 
 	for (int i = 0, e = SUnits.size(); i != e; ++i) {
 		Cir.reset();
-		Cir.circuit(i, i, NodeSets);
+		Cir.circuit(i, i, NodeSets,false);
 	}
 
 }
@@ -811,12 +813,12 @@ void SwingSchedulerDAG::computeNodeFunctions(NodeSetType &NodeSets){
 
 
 
-	/*for (NodeSet &I : NodeSets){
+	for (NodeSet &I : NodeSets){
 		for (SUnit* su : I){
 			I.MaxMov = std::max(I.MaxMov, this->getMOV(su));
 			I.MaxDepth = std::max(I.MaxDepth, this->getDepth(su));
 		}
-	}*/
+	}
 
 	DEBUG({
 		for (unsigned i = 0; i < SUnits.size(); i++) {
@@ -838,7 +840,7 @@ void SwingSchedulerDAG::computeNodeFunctions(NodeSetType &NodeSets){
 void SwingSchedulerDAG::computeNodeOrder(NodeSetType &NodeSets) {
 	SmallSetVector<SUnit *, 8> R;
 	NodeOrder.clear();
-
+	std::cout << NodeSets.size() << std::endl;
 	for (auto &Nodes : NodeSets) {
 		DEBUG(dbgs() << "NodeSet size " << Nodes.size() << "\n");
 		OrderKind Order;
