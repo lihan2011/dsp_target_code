@@ -109,6 +109,11 @@ let EncoderMethod = "getBranchTargetOpValue";
 let OperandType = "OPERAND_PCREL";
 }
 
+def looptarget    : Operand<OtherVT> {
+  let EncoderMethod = "getBranchTargetOpValue";
+  let OperandType = "OPERAND_PCREL";
+}
+
 // Plus 1.
 def Plus1 : SDNodeXForm<imm, [{ return getImm(N, N->getSExtValue() + 1); }]>;
 
@@ -381,6 +386,14 @@ let isBarrier = 1;
 let hasDelaySlot = 1;
 }
 
+//Loop base
+class LoopBase<bits<3> typeop, bits<3> op, bits<4> inner_op, string instr_asm>:
+F_1Reg_imm16<typeop,op,inner_op, (outs), (ins GPROut:$ra, looptarget:$imm16),
+!strconcat(instr_asm, "\t $ra, $imm16"), [], ControlFlow_SLOT0> {
+let Inst{3-0} = inner_op;
+let hasDelaySlot = 1;
+}
+
 //Intrinsic function base
 
 class MMBase<bits<3> typeop,bits<3> op, bits<8> inner_op, string instr_asm, SDNode OpNode ,InstrItinClass itin, RegisterClass RC>
@@ -492,7 +505,7 @@ def Ret : RetBase<GPROut>;
 def Jmp : UncondBranch<4,0,0b000001,"jmp">;
 def JNC : CBranch<4,0,0b01001, "jnc">;
 def JC : CBranch<4,0,0b00101, "jc">;
-
+def Loop : LoopBase<4,5,0b0000, "loop">;
 //***************************************************************************************************//
 
 //call callr

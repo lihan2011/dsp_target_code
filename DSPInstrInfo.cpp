@@ -194,7 +194,7 @@ bool DSPInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB
 
 		// Not an analyzable branch (must be an indirect jump).
 		if (isUnpredicatedTerminator(SecondLastInst) && !SecondLastOpc)
-			return false;
+			return true;
 	}
 
 	// If there is only one terminator instruction, process it.
@@ -351,24 +351,30 @@ bool DSPInstrInfo::analyzeCompare(const MachineInstr *MI,
 
 	// Set mask and the first source register.
 	switch (Opc) {
-	case DSP::EQ:
+
 	case DSP::EQI:
-	case DSP::NEQ:
 	case DSP::NEQI:
-	case DSP::GE:
 	case DSP::GEI:
+	case DSP::GTI:
+	case DSP::LEI:
+	case DSP::LTI:
+		SrcReg = MI->getOperand(1).getReg();
+		//I don't know what this mask mean, maybe the opcode mask ??
+		Mask = 0x1C00001F;
+		break;
+	case DSP::EQ:
+	case DSP::NEQ:
+	case DSP::GE:
 	case DSP::GEU:
 	case DSP::GT:
-	case DSP::GTI:
 	case DSP::GTU:
 	case DSP::LE:
-	case DSP::LEI:
 	case DSP::LEU:
 	case DSP::LT:
-	case DSP::LTI:
 	case DSP::LTU:
 		SrcReg = MI->getOperand(1).getReg();
-		Mask = ~0;	//I don't know what this mask mean
+		//I don't know what this mask mean, maybe the opcode mask ??
+		Mask = 0x1C0000FF;
 		break;
 	case DSP::veq_10:
 	case DSP::veq_20:
@@ -386,7 +392,8 @@ bool DSPInstrInfo::analyzeCompare(const MachineInstr *MI,
 	case DSP::vle_20:
 	case DSP::vle_40:
 		SrcReg = MI->getOperand(1).getReg();
-		Mask = 0xFFFF;	//I don't know what this mask mean
+		//I don't know what this mask mean, maybe the opcode mask ??
+		Mask = 0x1C0000FF;
 		break;
 	}
 
@@ -469,7 +476,7 @@ bool llvm::DSPInstrInfo::AnalyzeBranch(MachineBasicBlock & MBB, MachineBasicBloc
 
 		// Not an analyzable branch (must be an indirect jump).
 		if (isUnpredicatedTerminator(SecondLastInst) && !SecondLastOpc)
-			return false;
+			return true;
 	}
 
 	// If there is only one terminator instruction, process it.

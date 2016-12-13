@@ -16,14 +16,21 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
+#include <stdio.h>
+
 using namespace llvm;
+
 #define DEBUG_TYPE "dsp"
+
 extern "C" void LLVMInitializeDSPTarget() {
 	//- Little endian Target Machine
 	RegisterTargetMachine<DSPelTargetMachine> X(TheDSPelTarget);
 }
 
 extern cl::opt<bool> EnableSwPipeline;
+
+static cl::opt<bool> DisableHardwareLoops("disable-dsp-hwloops",
+	cl::Hidden, cl::desc("Disable Hardware Loops for DSP target"));
 
 // DataLayout --> Big-endian, 32-bit pointer/ABI/alignment
 // The stack is always 8 byte aligned
@@ -98,6 +105,12 @@ bool DSPPassConfig::addPreRegAlloc() {
 	{
 		addPass(createLoopPipelinePass());
 	}
+	puts("Prepare for DisableHardwareLoops");
+	if (getOptLevel() != CodeGenOpt::None)
+		puts("getOptLevel() != CodeGenOpt::None");
+		if (!DisableHardwareLoops)
+			puts("!DisableHardwareLoops");
+			addPass(createDSPHardwareLoops());
 	return false;
 }
 
