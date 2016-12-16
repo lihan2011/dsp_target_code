@@ -528,7 +528,9 @@ namespace {
 			else {
 				MachineBasicBlock::iterator MII = MI;
 				++MII;
-				if (MII->getOpcode() == DSP::Ret || MII->getOpcode() == DSP::RetLR||MII->getOpcode()==DSP::NOP){
+				if (MII->getOpcode() == DSP::Ret || MII->getOpcode() == DSP::RetLR || MII->getOpcode()==DSP::NOP 
+					|| MII->getOpcode() == DSP::NOP_S || MI->getOpcode() == DSP::NOP_S
+					|| MI->getOpcode() == DSP::ENDLOOP|| MII->getOpcode() == DSP::ENDLOOP){
 					endPacket(MBB, MI);
 				}
 				else 

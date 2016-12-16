@@ -105,11 +105,8 @@ bool DSPPassConfig::addPreRegAlloc() {
 	{
 		addPass(createLoopPipelinePass());
 	}
-	puts("Prepare for DisableHardwareLoops");
 	if (getOptLevel() != CodeGenOpt::None)
-		puts("getOptLevel() != CodeGenOpt::None");
 		if (!DisableHardwareLoops)
-			puts("!DisableHardwareLoops");
 			addPass(createDSPHardwareLoops());
 	return false;
 }
@@ -125,8 +122,10 @@ bool DSPPassConfig::addPreEmitPass() {
 	addPass(createDSPDelJmpPass(TM));
 
 	addPass(createDSPDelaySlotFillerPass(TM));
+	//fixup hwloop
 	addPass(createDSPPacketizer());
 	addPass(createDSPVLIWBundlerDrive(TM));
+
 	return true;
 }
 

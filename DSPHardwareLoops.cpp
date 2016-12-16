@@ -49,6 +49,7 @@ using namespace llvm;
 
 #define DEBUG_TYPE "hwloops"
 #define DSPDEBUG 1
+#define VREGBASEADDR 2147483648
 
 #ifndef NDEBUG
 static cl::opt<int> HWLoopLimit("max-dsphwloop", cl::Hidden, cl::init(-1));
@@ -262,11 +263,18 @@ namespace {
     /// \brief Given a loop, if it does not have a preheader, create one.
     /// Return the block that is the preheader.
     MachineBasicBlock *createPreheaderForLoop(MachineLoop *L);
+
 	/// \brief Create a new MBB prelatch right before the latch block, moving
 	///the instructions from latch to prelatch except the last one and the 
 	///control flow after it.
 	///The processed latch block will mark the end address of DSP hardware loop.
+	/// It is not valid to replace the loop header with this method.
 	MachineBasicBlock * splitLatchBlock(MachineLoop * L);
+	
+	/// \brief getVRegOriginDef - Return the original machine instr that
+	/// defines the specified virtual register or null if none is found
+	/// while skipping the COPY instruction.
+	MachineInstr * getVRegOriginDef(unsigned Reg) const;
   };
 
   char DSPHardwareLoops::ID = 0;
@@ -407,7 +415,7 @@ bool DSPHardwareLoops::findInductionRegister(MachineLoop *L,
         continue;
 
       unsigned PhiOpReg = Phi->getOperand(i).getReg();
-      MachineInstr *DI = MRI->getVRegDef(PhiOpReg);
+      MachineInstr *DI = getVRegOriginDef(PhiOpReg);
       unsigned UpdOpc = DI->getOpcode();
       bool isAdd = (UpdOpc == DSP::ADDiu);
 
@@ -415,7 +423,7 @@ bool DSPHardwareLoops::findInductionRegister(MachineLoop *L,
         // If the register operand to the add is the PHI we're
         // looking at, this meets the induction pattern.
         unsigned IndReg = DI->getOperand(1).getReg();
-        if (MRI->getVRegDef(IndReg) == Phi) {
+        if (getVRegOriginDef(IndReg) == Phi) {
           unsigned UpdReg = DI->getOperand(0).getReg();
           int64_t V = DI->getOperand(2).getImm();
           IndMap.insert(std::make_pair(UpdReg, std::make_pair(IndReg, V)));
@@ -437,9 +445,9 @@ bool DSPHardwareLoops::findInductionRegister(MachineLoop *L,
   assert (CSz == 2);
   unsigned PredR = Cond[CSz - 1].getReg();
 	if(DSPDEBUG)
-		std::cout << "Pred Register in Cond of AnalyzeBranch(): " << PredR << "\n" << std::endl;
+		std::cout << "Pred Register in Cond of AnalyzeBranch(): " << (PredR-VREGBASEADDR)  << std::endl;
 
-  MachineInstr *PredI = MRI->getVRegDef(PredR);
+  MachineInstr *PredI = getVRegOriginDef(PredR);
   if (!PredI->isCompare())
     return false;
 
@@ -475,7 +483,7 @@ bool DSPHardwareLoops::findInductionRegister(MachineLoop *L,
 
   Reg = F->second.first;
   IVBump = F->second.second;
-  IVOp = MRI->getVRegDef(F->first);
+  IVOp = getVRegOriginDef(F->first);
   return true;
 }
 
@@ -509,6 +517,12 @@ CountValue *DSPHardwareLoops::getLoopTripCount(MachineLoop *L,
   } else if (!L->contains(Backedge))
     return nullptr;
 
+  if (DSPDEBUG) {
+	  std::cout << "**getLoopTripCount**" << std::endl;
+	  std::cout << "TOPBlock:" << TopMBB->getFullName() << std::endl;
+	  std::cout << "IncomingBlock:" << Incoming->getFullName() << std::endl;
+	  std::cout << "BackedgeBlock:" << Backedge->getFullName() << std::endl;
+  }
   // Look for the cmp instruction to determine if we can get a useful trip
   // count.  The trip count can be either a register or an immediate.  The
   // location of the value depends upon the type (reg or imm).
@@ -520,19 +534,29 @@ CountValue *DSPHardwareLoops::getLoopTripCount(MachineLoop *L,
   int64_t IVBump = 0;
   MachineInstr *IVOp;
   bool FoundIV = findInductionRegister(L, IVReg, IVBump, IVOp);
+  if (DSPDEBUG) {
+	  std::cout << "\n**findInductionRegister**" << std::endl;
+	  std::cout << "IVReg:" << (IVReg - VREGBASEADDR) << std::endl;
+	  std::cout << "IVBump:" << IVBump << std::endl;
+  }
   if (!FoundIV)
     return nullptr;
 
   MachineBasicBlock *Preheader = L->getLoopPreheader();
 
   MachineOperand *InitialValue = nullptr;
-  MachineInstr *IV_Phi = MRI->getVRegDef(IVReg);
+  MachineInstr *IV_Phi = getVRegOriginDef(IVReg);
   for (unsigned i = 1, n = IV_Phi->getNumOperands(); i < n; i += 2) {
     MachineBasicBlock *MBB = IV_Phi->getOperand(i+1).getMBB();
     if (MBB == Preheader)
       InitialValue = &IV_Phi->getOperand(i);
-    else if (MBB == Latch)
-      IVReg = IV_Phi->getOperand(i).getReg();  // Want IV reg after bump.
+	else if (MBB == Latch) {
+		IVReg = IV_Phi->getOperand(i).getReg();  // Want IV reg after bump.
+		//!! Skip the COPY Register to find the bumpReg in ADDiu instruction.
+		IVReg = getVRegOriginDef(IVReg)->getOperand(0).getReg();
+		if (DSPDEBUG) 
+			std::cout << "UpdateReg:" << (IVReg - VREGBASEADDR) << std::endl;
+	}
   }
   if (!InitialValue)
     return nullptr;
@@ -567,7 +591,7 @@ CountValue *DSPHardwareLoops::getLoopTripCount(MachineLoop *L,
   //bool Negated = (Cond.size() > 1) ^ (TB != Header);
   bool Negated = (Cond[0].getImm() == DSP::JNC) ^ (TB != Header);
   unsigned PredReg = Cond[Cond.size()-1].getReg();
-  MachineInstr *CondI = MRI->getVRegDef(PredReg);
+  MachineInstr *CondI = getVRegOriginDef(PredReg);
   unsigned CondOpc = CondI->getOpcode();
 
   unsigned CmpReg1 = 0, CmpReg2 = 0;
@@ -594,7 +618,8 @@ CountValue *DSPHardwareLoops::getLoopTripCount(MachineLoop *L,
   const MachineOperand *EndValue = nullptr;
 
   if (Op1.isReg()) {
-    if (Op2.isImm() || Op1.getReg() == IVReg)
+	  //!! skip COPY
+    if (Op2.isImm() || getVRegOriginDef(Op1.getReg())->getOperand(0).getReg() == IVReg)
       EndValue = &Op2;
     else {
       EndValue = &Op1;
@@ -613,15 +638,34 @@ CountValue *DSPHardwareLoops::getLoopTripCount(MachineLoop *L,
 
   if (InitialValue->isReg()) {
     unsigned R = InitialValue->getReg();
-    MachineBasicBlock *DefBB = MRI->getVRegDef(R)->getParent();
+    MachineBasicBlock *DefBB = getVRegOriginDef(R)->getParent();
+	if (DSPDEBUG) {
+		std::cout << "\n**getLoopTripCount**" << std::endl;
+		std::cout << "Initial Value DefBB:" << DefBB->getFullName() << std::endl;
+		if(InitialValue->isReg())
+			std::cout << "Initial Value VReg:" 
+			<<  (InitialValue->getReg()-VREGBASEADDR) << std::endl; 
+		else
+			std::cout << "Initial Value Imm:" 
+			<< (InitialValue->getImm()) << std::endl;
+	}
     if (!MDT->properlyDominates(DefBB, Header))
       return nullptr;
 	//The instruction defining the initial value of induction variable.
-    OldInsts.push_back(MRI->getVRegDef(R));
+    OldInsts.push_back(getVRegOriginDef(R));
   }
   if (EndValue->isReg()) {
     unsigned R = EndValue->getReg();
-    MachineBasicBlock *DefBB = MRI->getVRegDef(R)->getParent();
+    MachineBasicBlock *DefBB = getVRegOriginDef(R)->getParent();
+	if (DSPDEBUG) {
+		std::cout << "End Value DefBB:" << DefBB->getFullName() << std::endl;
+		if (EndValue->isReg())
+			std::cout << "End Value VReg:"
+			<< (EndValue->getReg() - VREGBASEADDR) << std::endl;
+		else
+			std::cout << "End Value Imm:"
+			<< (EndValue->getImm()) << std::endl;
+	}
     if (!MDT->properlyDominates(DefBB, Header))
       return nullptr;
   }
@@ -646,14 +690,14 @@ CountValue *DSPHardwareLoops::computeCount(MachineLoop *Loop,
   // Check if either the start or end values are an assignment of an immediate.
   // If so, use the immediate value rather than the register.
   if (Start->isReg()) {
-    const MachineInstr *StartValInstr = MRI->getVRegDef(Start->getReg());
+    const MachineInstr *StartValInstr = getVRegOriginDef(Start->getReg());
 	//MovGR is a pseudo instruction will be matched as Movigh and Movigl in PostRA Pass.
 	//The immediate is in the second operand of MovGR.
     if (StartValInstr && StartValInstr->getOpcode() == DSP::MovGR)
       Start = &StartValInstr->getOperand(2);
   }
   if (End->isReg()) {
-    const MachineInstr *EndValInstr = MRI->getVRegDef(End->getReg());
+    const MachineInstr *EndValInstr = getVRegOriginDef(End->getReg());
     if (EndValInstr && EndValInstr->getOpcode() == DSP::MovGR)
       End = &EndValInstr->getOperand(2);
   }
@@ -940,29 +984,78 @@ bool DSPHardwareLoops::isDead(const MachineInstr *MI,
     // this instruction is dead: both it (and the phi node) can be removed.
     use_nodbg_iterator I = MRI->use_nodbg_begin(Reg);
     use_nodbg_iterator End = MRI->use_nodbg_end();
-    if (std::next(I) != End || !I->getParent()->isPHI())
+
+    //!! Skip COPY processing here, going back referring to Hexagon
+	if (std::next(I) != End 
+		|| (!I->getParent()->isPHI()
+		&& (I->getParent()->getOpcode() != DSP::COPY)))
       return false;
 
-    MachineInstr *OnePhi = I->getParent();
-    for (unsigned j = 0, f = OnePhi->getNumOperands(); j != f; ++j) {
-      const MachineOperand &OPO = OnePhi->getOperand(j);
-      if (!OPO.isReg() || !OPO.isDef())
-        continue;
+	//The Only user is Phi
+	if (I->getParent()->isPHI()) {
+		MachineInstr *OnePhi = I->getParent();
+		for (unsigned j = 0, f = OnePhi->getNumOperands(); j != f; ++j) {
+			const MachineOperand &OPO = OnePhi->getOperand(j);
+			if (!OPO.isReg() || !OPO.isDef())
+				continue;
 
-      unsigned OPReg = OPO.getReg();
-      use_nodbg_iterator nextJ;
-      for (use_nodbg_iterator J = MRI->use_nodbg_begin(OPReg);
-           J != End; J = nextJ) {
-        nextJ = std::next(J);
-        MachineOperand &Use = *J;
-        MachineInstr *UseMI = Use.getParent();
+			unsigned OPReg = OPO.getReg();
+			use_nodbg_iterator nextJ;
+			for (use_nodbg_iterator J = MRI->use_nodbg_begin(OPReg);
+				J != End; J = nextJ) {
+				nextJ = std::next(J);
+				MachineOperand &Use = *J;
+				MachineInstr *UseMI = Use.getParent();
 
-        // If the phi node has a user that is not MI, bail...
-        if (MI != UseMI)
-          return false;
-      }
-    }
-    DeadPhis.push_back(OnePhi);
+				// If the phi node has a user that is not MI, bail...
+				if (MI != UseMI)
+					return false;
+			}
+		}
+		DeadPhis.push_back(OnePhi);
+	}
+	//The only user is COPY. 
+	//I->getParent()->getOpcode() == DSP::COPY 
+	else {
+		//Check if the COPY instruction is dead. 
+		MachineInstr *OneCOPY = I->getParent();
+		unsigned COPYReg = OneCOPY->getOperand(0).getReg();
+		if (MRI->use_nodbg_empty(COPYReg)) {
+			//if this Instruction is dead, COPY is too.
+			DeadPhis.push_back(OneCOPY);
+			continue;
+		}
+		//Analyze the uses of COPYReg
+		use_nodbg_iterator CI = MRI->use_nodbg_begin(COPYReg);
+		use_nodbg_iterator CEnd = MRI->use_nodbg_end();
+		if (std::next(CI) != End || !CI->getParent()->isPHI())
+			return false;
+		//Only phi uses the COPYReg 
+		//If it is "Instr->COPY->Phi->Instr...", removing these three instructions.
+			MachineInstr *OnePhi = CI->getParent();
+			for (unsigned j = 0, f = OnePhi->getNumOperands(); j != f; ++j) {
+				const MachineOperand &OPO = OnePhi->getOperand(j);
+				if (!OPO.isReg() || !OPO.isDef())
+					continue;
+
+				unsigned OPReg = OPO.getReg();
+				use_nodbg_iterator nextJ;
+				for (use_nodbg_iterator J = MRI->use_nodbg_begin(OPReg);
+					J != End; J = nextJ) {
+					nextJ = std::next(J);
+					MachineOperand &Use = *J;
+					MachineInstr *UseMI = Use.getParent();
+
+					// If the phi node has a user that is not MI, bail...
+					if (MI != UseMI)
+						return false;
+				}
+			}
+			//If this Instruction is confirmed as dead at last, erase them all
+			//Otherwise, retaining them all.
+			DeadPhis.push_back(OneCOPY);
+			DeadPhis.push_back(OnePhi);
+	}
   }
 
   // If there are no defs with uses, the instruction is dead.
@@ -972,7 +1065,7 @@ bool DSPHardwareLoops::isDead(const MachineInstr *MI,
 void DSPHardwareLoops::removeIfDead(MachineInstr *MI) {
   // This procedure was essentially copied from DeadMachineInstructionElim.
 
-  SmallVector<MachineInstr*, 1> DeadPhis;
+  SmallVector<MachineInstr*, 2> DeadPhis;
   if (isDead(MI, DeadPhis)) {
     DEBUG(dbgs() << "HW looping will remove: " << *MI);
 
@@ -1044,7 +1137,8 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
   if (!fixupInductionVariable(L))
     return false;
 
-  //split the latch block
+  //!! split the latch block
+  // It is not valid to replace the loop header with this method.
   //if (!splitLatchBlock(L))
 	 // return false;
 
@@ -1052,6 +1146,11 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
   // Don't generate hw loop if the loop has more than one exit.
   if (!LastMBB)
     return false;
+
+  if (DSPDEBUG) {
+	  std::cout << "**convertToHardwareLoop**" << std::endl;
+		  std::cout << "ExitingBlock:" << LastMBB->getFullName() << std::endl;
+  }
 
   MachineBasicBlock::iterator LastI = LastMBB->getFirstTerminator();
   if (LastI == LastMBB->end())
@@ -1067,6 +1166,17 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
       return false;
     NewPreheader = true;
   }
+
+  //!! Also Tail Merging adjacent Preheaher and Header irrelative of unconditional
+  //jump from preheader to header.
+  //if (!NewPreheader) {
+	 // if (Preheader->getFirstTerminator() == Preheader->end()) {
+		//  SmallVector<MachineOperand, 1> EmptyCond;
+		//  DebugLoc DL;
+		//  MachineBasicBlock *Header = L->getHeader();
+		//  TII->InsertBranch(*Preheader, Header, nullptr, EmptyCond, DL);
+	 // }
+  //}
 
   //?? DSP Loop End determination may refer to this	from Hexagon determining loop start ??//
   // Determine the loop end block.
@@ -1089,11 +1199,27 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
   }
 
   MachineBasicBlock::iterator InsertPos = Preheader->getFirstTerminator();
-  //LastBlock has only terminate instruction, the loop end position 
-  //(the last instruction in this loop body) isn't inside this MBB.
-  if (LastI == LastMBB->begin())
-	  return false;
-  MachineBasicBlock::iterator EndIntrPos = std::prev(LastI);
+
+
+  ////LastBlock has only terminate instruction, the loop end position 
+  ////(the last instruction in this loop body) isn't inside this MBB.
+  //if (LastI == LastMBB->begin())
+	 // return false;
+
+  //unsigned IVReg = 0;
+  //int64_t IVBump = 0;
+  //MachineInstr *IVOp;
+  //bool FoundIV = findInductionRegister(L, IVReg, IVBump, IVOp);
+  //if (!FoundIV)
+	 // return nullptr;
+  //MachineBasicBlock::iterator EndIntrPos = std::prev(LastI);
+  ////!! skip COPY
+  //while((EndIntrPos->getOpcode() == DSP::COPY || EndIntrPos->isCompare() || &*EndIntrPos == IVOp)
+	 // && EndIntrPos != LastMBB->begin())
+	 // EndIntrPos = std::prev(EndIntrPos);
+  ////Can't find the non-COPY and non-compare end instruction in LastMBB
+  //if (EndIntrPos->getOpcode() == DSP::COPY || EndIntrPos->isCompare() || &*EndIntrPos == IVOp)
+	 // return false;
 
   SmallVector<MachineInstr*, 2> OldInsts;
   // Are we able to determine the trip count for the loop?
@@ -1105,7 +1231,7 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
   if (TripCount->isReg()) {
     // There will be a use of the register inserted into the preheader,
     // so make sure that the register is actually defined at that point.
-    MachineInstr *TCDef = MRI->getVRegDef(TripCount->getReg());
+    MachineInstr *TCDef = getVRegOriginDef(TripCount->getReg());
     MachineBasicBlock *BBDef = TCDef->getParent();
     if (!NewPreheader) {
       if (!MDT->dominates(BBDef, Preheader))
@@ -1161,9 +1287,12 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
   //end address operand in Loop instruction on later Pass.
 
   DebugLoc LastIDL = LastI->getDebugLoc();
-  DebugLoc EndIDL = EndIntrPos->getDebugLoc();
-  BuildMI(*LoopEnd, EndIntrPos, EndIDL,
-          TII->get(DSP::NOP_S));
+  //DebugLoc EndIDL = EndIntrPos->getDebugLoc();
+  //BuildMI(*LoopEnd, EndIntrPos, EndIDL,
+  //        TII->get(DSP::ENDLOOP));
+  //MIBundleBuilder(*LoopEnd, EndIntrPos, std::next(EndIntrPos, 1));
+  BuildMI(*LoopEnd, LastI, LastIDL,
+          TII->get(DSP::ENDLOOP));
 
   // The loop ends with either:
   //  - a conditional branch followed by an unconditional branch, or
@@ -1237,7 +1366,7 @@ bool DSPHardwareLoops::orderBumpCompare(MachineInstr *BumpI,
 
 
 MachineInstr *DSPHardwareLoops::defWithImmediate(unsigned R) {
-  MachineInstr *DI = MRI->getVRegDef(R);
+  MachineInstr *DI = getVRegOriginDef(R);
   unsigned DOpc = DI->getOpcode();
   switch (DOpc) {
     case DSP::MovGR:
@@ -1294,7 +1423,7 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
   MachineBasicBlock *Latch = L->getLoopLatch();
 
   if (DSPDEBUG) {
-		std::cout << "fixupInductionVariable" << std::endl;
+		std::cout << "**fixupInductionVariable**" << std::endl;
 	  if (Header)
 		  std::cout << "Header:" << Header->getFullName() << std::endl;
 	  if (Preheader)
@@ -1340,8 +1469,8 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
 
       unsigned PhiReg = Phi->getOperand(i).getReg();
 	  if (DSPDEBUG)
-		  std::cout << "PhiReg from Latch:" << PhiReg << std::endl;
-      MachineInstr *DI = MRI->getVRegDef(PhiReg);
+		  std::cout << "PhiReg from Latch:" << (PhiReg-VREGBASEADDR) << std::endl;
+      MachineInstr *DI = getVRegOriginDef(PhiReg);
       unsigned UpdOpc = DI->getOpcode();
       bool isAdd = (UpdOpc == DSP::ADDiu);
 
@@ -1351,7 +1480,7 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
 		//   induction = PHI ..., [ latch, update ]
 		//   update = ADDiu induction, imm
         unsigned IndReg = DI->getOperand(1).getReg();
-        if (MRI->getVRegDef(IndReg) == Phi) {
+        if (getVRegOriginDef(IndReg) == Phi) {
           unsigned UpdReg = DI->getOperand(0).getReg();
           int64_t V = DI->getOperand(2).getImm();
           IndRegs.insert(std::make_pair(UpdReg, std::make_pair(IndReg, V)));
@@ -1373,6 +1502,18 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
   if (NotAnalyzed)
     return false;
 
+  if (DSPDEBUG) {
+	  std::cout << "--AnalyzeBranch Latch--" << std::endl;
+	  if (Latch)
+		  std::cout << "Latch:" << Latch->getFullName() << std::endl;
+	  if (TB)
+		  std::cout << "TB:" << TB->getFullName() << std::endl;
+	  if (FB)
+		  std::cout << "FB:" << FB->getFullName() << std::endl;
+	  std::cout << "Opcode:" << Cond[0].getImm() << std::endl;
+	  std::cout << "Predicate Reg:" << (Cond[1].getReg() - VREGBASEADDR) << std::endl;
+  }
+
   // Check if the latch branch is unconditional.
   if (Cond.empty())
     return false;
@@ -1391,7 +1532,7 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
     return false;
 
   unsigned P = Cond[CSz-1].getReg();
-  MachineInstr *PredDef = MRI->getVRegDef(P);
+  MachineInstr *PredDef = getVRegOriginDef(P);
 
   if (!PredDef->isCompare())
     return false;
@@ -1413,7 +1554,8 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
       if (MO.isUse()) {
         unsigned R = MO.getReg();
         if (!defWithImmediate(R)) {
-          CmpRegs.insert(MO.getReg());
+		//Maybe after COPY ,skip COPY!!
+          CmpRegs.insert(getVRegOriginDef(MO.getReg())->getOperand(0).getReg());
           continue;
         }
         // Consider the register to be the "immediate" operand.
@@ -1466,7 +1608,7 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
 
       // Make sure that the compare happens after the bump.  Otherwise,
       // after the fixup, the compare would use a yet-undefined register.
-      MachineInstr *BumpI = MRI->getVRegDef(I->first);
+      MachineInstr *BumpI = getVRegOriginDef(I->first);
       bool Order = orderBumpCompare(BumpI, PredDef);
       if (!Order)
         return false;
@@ -1622,10 +1764,22 @@ MachineBasicBlock *DSPHardwareLoops::createPreheaderForLoop(
   TII->InsertBranch(*NewPH, Header, nullptr, EmptyCond, DL);
   NewPH->addSuccessor(Header);
 
+  MachineLoop *ParentLoop = L->getParentLoop();
+	if (ParentLoop)
+		ParentLoop->addBasicBlockToLoop(NewPH, MLI->getBase());
+
+	// Update the dominator information with the new preheader.
+   if (MDT) {
+       MachineDomTreeNode *HDom = MDT->getNode(Header);
+	   MDT->addNewBlock(NewPH, HDom->getIDom()->getBlock());
+ 	   MDT->changeImmediateDominator(Header, NewPH);
+  }
+
   return NewPH;
 }
 
 /// \brief Create a preheader for a given loop.
+/// It is not valid to replace the loop header with this method.
 MachineBasicBlock *DSPHardwareLoops::splitLatchBlock(
 	MachineLoop *L) {
 	MachineBasicBlock *Latch = L->getLoopLatch();
@@ -1696,4 +1850,23 @@ MachineBasicBlock *DSPHardwareLoops::splitLatchBlock(
 	PreLatch->addSuccessor(Latch);
 
 	return PreLatch;
+}
+
+/// getVRegOriginDef - Return the original machine instr that defines the specified virtual
+/// register or null if none is found, skipping the COPY instruction.
+/// This assumes that the code is in SSA
+/// form, so there should only be one original definition.
+MachineInstr *DSPHardwareLoops::getVRegOriginDef(unsigned Reg) const {
+	// Since the existence of COPY instructions, we must skip them 
+	//to find the original definition instruction.
+	MachineInstr *DI;
+
+	do {
+		DI = MRI->getVRegDef(Reg);
+		if (!DI)
+			break;
+		Reg = DI->getOperand(1).getReg();
+	} while (DI->getOpcode() == DSP::COPY);
+
+	return DI;
 }

@@ -94,7 +94,7 @@ static void AnalyzeCondBr(const MachineInstr *Inst, unsigned Opc,
 	// MBB.
 
 	for (int i = 0; i <= NumOp - 1; i++)
-		std::cout << " the type: " << Inst->getOperand(i).getType() << std::endl;
+		//std::cout << " the type: " << Inst->getOperand(i).getType() << std::endl;
 
 	BB = Inst->getOperand(NumOp - 1).getMBB();
 	Cond.push_back(MachineOperand::CreateImm(Opc));
