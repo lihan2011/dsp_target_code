@@ -378,6 +378,18 @@ bool DSPHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
   return Changed;
 }
 
+/// \brief Return the latch block if it's one of the exiting blocks. Otherwise,
+/// return the exiting block. Return 'null' when multiple exiting blocks are
+/// present.
+static MachineBasicBlock* getExitingBlock(MachineLoop *L) {
+	if (MachineBasicBlock *Latch = L->getLoopLatch()) {
+		if (L->isLoopExiting(Latch))
+			return Latch;
+		else
+			return L->getExitingBlock();
+	}
+	return nullptr;
+}
 
 bool DSPHardwareLoops::findInductionRegister(MachineLoop *L,
                                                  unsigned &Reg,
@@ -387,8 +399,9 @@ bool DSPHardwareLoops::findInductionRegister(MachineLoop *L,
   MachineBasicBlock *Header = L->getHeader();
   MachineBasicBlock *Preheader = L->getLoopPreheader();
   MachineBasicBlock *Latch = L->getLoopLatch();
-  if (!Header || !Preheader || !Latch)
-    return false;
+  MachineBasicBlock *ExitingBlock = getExitingBlock(L);
+  if (!Header || !Preheader || !Latch || !ExitingBlock)
+	  return false;
 
   // This pair represents an induction register together with an immediate
   // value that will be added to it in each loop iteration.
@@ -445,7 +458,7 @@ bool DSPHardwareLoops::findInductionRegister(MachineLoop *L,
   assert (CSz == 2);
   unsigned PredR = Cond[CSz - 1].getReg();
 	if(DSPDEBUG)
-		std::cout << "Pred Register in Cond of AnalyzeBranch(): " << (PredR-VREGBASEADDR)  << std::endl;
+		std::cout << "Pred Register in Cond of AnalyzeBranch(Latch): " << (PredR-VREGBASEADDR)  << std::endl;
 
   MachineInstr *PredI = getVRegOriginDef(PredR);
   if (!PredI->isCompare())
@@ -1149,9 +1162,7 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
 
   if (DSPDEBUG) {
 	  std::cout << "**convertToHardwareLoop**" << std::endl;
-		  std::cout << "ExitingBlock:" << LastMBB->getFullName() << std::endl;
   }
-
   MachineBasicBlock::iterator LastI = LastMBB->getFirstTerminator();
   if (LastI == LastMBB->end())
     return false;
@@ -1165,6 +1176,11 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
     if (!Preheader)
       return false;
     NewPreheader = true;
+  }
+
+  if (DSPDEBUG) {
+	  if (Preheader)
+		  std::cout << "Preheader:" << Preheader->getFullName() << std::endl;
   }
 
   //!! Also Tail Merging adjacent Preheaher and Header irrelative of unconditional
@@ -1226,7 +1242,8 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
   CountValue *TripCount = getLoopTripCount(L, OldInsts);
   if (!TripCount)
     return false;
-
+  
+  DEBUG({ dbgs() << "Trip count: \t";  TripCount->print(dbgs()); dbgs() << "\n"; });
   // Is the trip count available in the preheader?
   if (TripCount->isReg()) {
     // There will be a use of the register inserted into the preheader,
@@ -1320,6 +1337,11 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
     removeIfDead(OldInsts[i]);
 
   ++NumHWLoops;
+
+  MachineFunction *MF = LastMBB->getParent();
+  DEBUG({ dbgs() << "HWLoops  result: \n";   MF->print(dbgs()); });
+  
+
   return true;
 }
 
@@ -1421,18 +1443,19 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
   MachineBasicBlock *Header = L->getHeader();
   MachineBasicBlock *Preheader = L->getLoopPreheader();
   MachineBasicBlock *Latch = L->getLoopLatch();
+  MachineBasicBlock *ExitingBlock = getExitingBlock(L);
 
   if (DSPDEBUG) {
 		std::cout << "**fixupInductionVariable**" << std::endl;
 	  if (Header)
 		  std::cout << "Header:" << Header->getFullName() << std::endl;
-	  if (Preheader)
-		  std::cout << "Preheader:" << Preheader->getFullName() << std::endl;
+	  if (ExitingBlock)
+		  std::cout << "ExitingBlock:" << ExitingBlock->getFullName() << std::endl;
 	  if (Latch)
 		  std::cout << "Latch:" << Latch->getFullName() << std::endl;
   }
 
-  if (!Header || !Preheader || !Latch)
+  if (!Header || !ExitingBlock || !Latch)
     return false;
 
   // These data structures follow the same concept as the corresponding
@@ -1455,6 +1478,8 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
   //   (predicate = cmp update, bound
   //	...
   //   br predicate header, ..., MBBn
+  if (DSPDEBUG)
+	  std::cout << "--find Phi operrand from Latch--"  << std::endl;
   typedef MachineBasicBlock::instr_iterator instr_iterator;
   for (instr_iterator I = Header->instr_begin(), E = Header->instr_end();
        I != E && I->isPHI(); ++I) {
@@ -1463,7 +1488,7 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
     // Have a PHI instruction.
     for (unsigned i = 1, n = Phi->getNumOperands(); i < n; i += 2) {
 		if (DSPDEBUG)
-			std::cout << "MBB operrand in Latch:" << (Phi->getOperand(i + 1).getMBB())->getFullName() << std::endl;
+			std::cout << "MBB operrand:" << (Phi->getOperand(i + 1).getMBB())->getFullName() << std::endl;
       if (Phi->getOperand(i+1).getMBB() != Latch)
         continue;
 
@@ -1498,20 +1523,46 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
   MachineBasicBlock *TB = nullptr, *FB = nullptr;
   SmallVector<MachineOperand,2> Cond;
   // AnalyzeBranch returns true if it fails to analyze branch.
-  bool NotAnalyzed = TII->AnalyzeBranch(*Latch, TB, FB, Cond, false);
-  if (NotAnalyzed)
-    return false;
+  bool NotAnalyzed = TII->AnalyzeBranch(*ExitingBlock, TB, FB, Cond, false);
+  if (NotAnalyzed || Cond.empty())
+	  return false;
 
   if (DSPDEBUG) {
-	  std::cout << "--AnalyzeBranch Latch--" << std::endl;
+	  std::cout << "--AnalyzeBranch Exiting--" << std::endl;
 	  if (Latch)
-		  std::cout << "Latch:" << Latch->getFullName() << std::endl;
+		  std::cout << "Exiting:" << Latch->getFullName() << std::endl;
 	  if (TB)
 		  std::cout << "TB:" << TB->getFullName() << std::endl;
 	  if (FB)
 		  std::cout << "FB:" << FB->getFullName() << std::endl;
-	  std::cout << "Opcode:" << Cond[0].getImm() << std::endl;
-	  std::cout << "Predicate Reg:" << (Cond[1].getReg() - VREGBASEADDR) << std::endl;
+	  if (!Cond.empty()) {
+		  std::cout << "Opcode:" << Cond[0].getImm() << std::endl;
+		  std::cout << "Predicate Reg:" << (Cond[1].getReg() - VREGBASEADDR) << std::endl;
+	  }
+  }
+  if (!L->isLoopExiting(Latch)){
+	  // AnalyzeBranch returns true if it fails to analyze branch.
+	  bool NotAnalyzedlatch = TII->AnalyzeBranch(*Latch, TB, FB, Cond, false);
+	  if (NotAnalyzedlatch)
+		  return false;
+
+	  if (DSPDEBUG) {
+		  std::cout << "--AnalyzeBranch Latch--" << std::endl;
+		  if (Latch)
+			  std::cout << "Latch:" << Latch->getFullName() << std::endl;
+		  if (TB)
+			  std::cout << "TB:" << TB->getFullName() << std::endl;
+		  if (FB)
+			  std::cout << "FB:" << FB->getFullName() << std::endl;
+		  if (!Cond.empty()) {
+			  std::cout << "Opcode:" << Cond[0].getImm() << std::endl;
+			  std::cout << "Predicate Reg:" << (Cond[1].getReg() - VREGBASEADDR) << std::endl;
+		  }
+	  }
+  }
+  else {
+	  if (DSPDEBUG)
+		  std::cout << "--Latch is Exiting Block--" << std::endl;
   }
 
   // Check if the latch branch is unconditional.

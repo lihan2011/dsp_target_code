@@ -103,24 +103,6 @@ static void AnalyzeCondBr(const MachineInstr *Inst, unsigned Opc,
 		Cond.push_back(Inst->getOperand(i));
 }
 
-///Just for HardwareLoop.cpp to invoke where needs the cmpRegister in /p Cond.
-static void AnalyzeLoopCondBr(const MachineInstr *Inst, unsigned Opc,
-	MachineBasicBlock *&BB,
-	SmallVectorImpl<MachineOperand> &Cond) {
-	assert(getAnalyzableBrOpc(Opc) && "Not an analyzable branch");
-	//?? I don't know whether it can get all operands including the implicit 
-	int NumOp = Inst->getNumOperands();
-
-	for (int i = 0; i < NumOp - 1; i++)
-		std::cout << " the type: " << Inst->getOperand(i).getType() << std::endl;
-
-	BB = Inst->getOperand(NumOp - 1).getMBB();
-	Cond.push_back(MachineOperand::CreateImm(Opc));
-
-	for (int i = 0; i<NumOp - 1; i++)
-		Cond.push_back(Inst->getOperand(i));
-}
-
 void DSPInstrInfo::BuildCondBr(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
 DebugLoc DL,
 const SmallVectorImpl<MachineOperand> &Cond) const {
@@ -437,91 +419,6 @@ bool DSPInstrInfo::analyzeCompare(const MachineInstr *MI,
 		Value = MI->getOperand(2).getImm();
 		return true;
 	}
-
-	return false;
-}
-
-///Overloading AnalyzeBranch for DSPHardwareLoop.cpp, which needs the cmpRegister included in \p Cond.
-/// # of condition operands:
-///  Unconditional branches: 0
-///  Conditiondl Branch: 2 (opc, reg(killed)) eg. JC or JNC
-bool llvm::DSPInstrInfo::AnalyzeBranch(MachineBasicBlock & MBB, MachineBasicBlock *& TBB, MachineBasicBlock *& FBB, 
-	SmallVectorImpl<MachineOperand>& Cond, 
-	bool AllowModify, 
-	bool isLoop) const
-{
-	//std::cout << "Mbb name" << MBB.getName().data() << std::endl;
-	MachineBasicBlock::reverse_iterator I = MBB.rbegin(), REnd = MBB.rend();
-	while (I != REnd&&I->isDebugValue())
-		++I;
-	if (I == REnd || !isUnpredicatedTerminator(&*I)) {
-		// This block ends with no branches (it just falls through to its succ).
-		// Leave TBB/FBB null. case 1
-		TBB = FBB = nullptr;
-		return false;
-	}
-
-	MachineInstr *LastInst = &*I;
-	unsigned LastOpc = LastInst->getOpcode();
-
-	if (!getAnalyzableBrOpc(LastOpc))
-		return true;
-	unsigned SecondLastOpc = 0;
-	MachineInstr *SecondLastInst = nullptr;
-
-	if (++I != REnd) {
-		SecondLastInst = &*I;
-		SecondLastOpc = getAnalyzableBrOpc(SecondLastInst->getOpcode());
-
-
-		// Not an analyzable branch (must be an indirect jump).
-		if (isUnpredicatedTerminator(SecondLastInst) && !SecondLastOpc)
-			return true;
-	}
-
-	// If there is only one terminator instruction, process it.
-	if (!SecondLastOpc) {
-		//case 2
-		if (LastOpc == DSP::Jmp) {
-			TBB = LastInst->getOperand(0).getMBB();
-			return false;
-		}
-
-		// Conditional branch
-		AnalyzeLoopCondBr(LastInst, LastOpc, TBB, Cond);
-		return false;
-	}
-
-	// If we reached here, there are two branches.
-	// If there are three terminators, we don't know what sort of block this is.
-	if (++I != REnd && isUnpredicatedTerminator(&*I))
-		return true;
-
-	// If second to last instruction is an unconditional branch,
-	// analyze it and remove the last instruction.
-	if (SecondLastOpc == DSP::Jmp) {
-		// Return if the last instruction cannot be removed.
-		if (!AllowModify)
-			return true;
-
-		TBB = SecondLastInst->getOperand(0).getMBB();
-		LastInst->eraseFromParent();
-		//BranchInstrs.pop_back();
-		return false;
-	}
-
-
-	// Conditional branch followed by an unconditional branch.
-	// The last one must be unconditional.
-	if (LastOpc != DSP::Jmp)
-		return true;
-
-	//std::cout << "?????" << std::endl;
-
-	AnalyzeLoopCondBr(SecondLastInst, SecondLastOpc, TBB, Cond);
-	FBB = LastInst->getOperand(0).getMBB();
-
-
 
 	return false;
 }

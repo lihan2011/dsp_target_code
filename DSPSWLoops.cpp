@@ -57,8 +57,8 @@ namespace llvm {
 	void initializeDSPSWLoopsPass(PassRegistry&);
 }
 
-cl::opt<bool> EnableSwPipeline("sw-pipeline", cl::init(false), cl::NotHidden,
-	cl::desc("start software pipeline"));
+//cl::opt<bool> EnableSwPipeline("sw-pipeline", cl::init(false), cl::NotHidden,
+//	cl::desc("start software pipeline"));
 
 namespace {
 	class NodeSet;
@@ -717,7 +717,7 @@ bool DSPSWLoops::swingModuloScheduler(MachineLoop *L){
 	std::cout << "size	" << size<< std::endl;
 	std::cout << "size2	" << size2 << std::endl;
 	SMS.enterRegion(MBB, MBB->getFirstNonPHI(), MBB->getFirstTerminator(), size2);
-	BuildMI(MBB, DebugLoc(), TII->get(DSP::NOP_S));
+	//BuildMI(MBB, DebugLoc(), TII->get(DSP::NOP_S));
 	//SMS.enterRegion(MBB, MBB->begin(), MBB->getFirstTerminator(), size);
 	SMS.schedule();
 	SMS.exitRegion();
