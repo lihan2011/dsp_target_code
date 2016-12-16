@@ -230,9 +230,9 @@ shift_rotate_imm<typeop, op, inner_op,isRotate, instr_asm, OpNode, immZExt5, sha
 // Arithmetic and logical instructions with 2 register operands.
 class ArithLogicI<bits<3> typeop, bits<3> op, bits<3> inner_op,string instr_asm, SDNode OpNode,
 Operand Od, PatLeaf imm_type, RegisterClass RC> :
-F_2Reg_imm11<typeop,op,inner_op, (outs GPROut:$ra), (ins RC:$rb, Od:$imm11),
+F_2Reg_imm11<typeop,op,inner_op, (outs RC:$ra), (ins RC:$rb, Od:$imm11),
 !strconcat(instr_asm, "\t$ra, $rb, $imm11"),
-[(set GPROut:$ra, (OpNode RC:$rb, imm_type:$imm11))],ALU32_S_SLOT01> {
+[(set RC:$ra, (OpNode RC:$rb, imm_type:$imm11))],ALU32_S_SLOT01> {
 let isReMaterializable = 1;
 }
 
@@ -241,9 +241,9 @@ let isReMaterializable = 1;
 // Arithmetic and logical instructions with 3 register operands.
 class ArithLogicR<bits<3> typeop, bits<3> op, bits<8> inner_op,string instr_asm, SDNode OpNode,
 InstrItinClass itin, RegisterClass RC, bit isComm = 0,bit isAlu = 1>:
-F_3Reg_001<typeop,op,inner_op, (outs GPROut:$ra), (ins RC:$rb, RC:$rc),
+F_3Reg_001<typeop,op,inner_op, (outs RC:$ra), (ins RC:$rb, RC:$rc),
 !strconcat(instr_asm, "\t$ra, $rb, $rc"),
-[(set GPROut:$ra, (OpNode RC:$rb, RC:$rc))], itin> {
+[(set RC:$ra, (OpNode RC:$rb, RC:$rc))], itin> {
 let isCommutable = isComm; // e.g. add rb rc = add rc rb
 let TSFlags{52} = isAlu;
 let isReMaterializable = 1;
@@ -298,6 +298,7 @@ FMem<typeop, op,inner_op, (outs RC:$ra), (ins MemOpnd:$addr),
 !strconcat(instr_asm, "\t$ra, $addr"),
 [(set RC:$ra, (OpNode addr:$addr))], LD_Ins_SLOT23 > {
 let isPseudo = Pseudo;
+let mayLoad = 1;
 }
 class StoreM<bits<3> typeop, bits<3> op,bits<5> inner_op,  string instr_asm, PatFrag OpNode, RegisterClass RC,
 Operand MemOpnd, bit Pseudo>:
@@ -305,11 +306,12 @@ FMem<typeop, op,inner_op, (outs), (ins RC:$ra, MemOpnd:$addr),
 !strconcat(instr_asm, "\t$ra, $addr"),
 [(OpNode RC:$ra, addr:$addr)], ST_Ins_SLOT23 > {
 let isPseudo = Pseudo;
+let mayStore = 1;
 }
 // 32-bit load.
 multiclass LoadM32<bits<3> typeop, bits<3> op,bits<5> inner_op,  string instr_asm, PatFrag OpNode,
 bit Pseudo = 0> {
-def #NAME# : LoadM<typeop, op,inner_op, instr_asm, OpNode, GPROut, mem, Pseudo>;
+def #NAME# : LoadM<typeop, op,inner_op, instr_asm, OpNode, CPURegs, mem, Pseudo>;
 }
 // 32-bit store.
 multiclass StoreM32<bits<3> typeop, bits<3> op,bits<5> inner_op,  string instr_asm, PatFrag OpNode,
@@ -327,7 +329,7 @@ F_Special_0Reg<typeop,op,inner_op,(outs), (ins RC:$ra),
 //mov
 
 class SMovBase<bits<3> typeop,bits<3> op ,bits<4> inner_op, string instr_asm,RegisterClass RC,InstrItinClass itin>:
-F_1Reg_imm16<typeop, op, inner_op,(outs GPROut:$ra), (ins RC:$rb,simm16:$imm16),
+F_1Reg_imm16<typeop, op, inner_op,(outs RC:$ra), (ins RC:$rb, simm16:$imm16),
 !strconcat(instr_asm, "\t$ra,$imm16"),[],itin>{
 bits<16> imm16;
 let Inst{19-4} = imm16;
@@ -418,17 +420,7 @@ let Inst{25-20} = 0b000000;
 let isCommutable = 0;
 }
 
-// Memory Load/Store
-/*
-let canFoldAsLoad = 1 in
-class Mem128<bits<3> typeop,bits<3> op, string instr_asm, SDNode OpNode,InstrItinClass itin, RegisterClass RC,
-Operand MemOpnd, bit Pseudo>:
-FMem<typeop, op, (outs), (ins RC:$ra ,MemOpnd:$addr),
-!strconcat(instr_asm, "\t$ra, $addr"),
-[ (OpNode RC:$ra, addr:$addr)], itin> {
-let isPseudo = Pseudo;
-}
-*/
+	
 
 class StoreM128<bits<3> typeop,bits<3> op,bits<5> inner_op, string instr_asm, PatFrag OpNode,
  bit Pseudo =0>:StoreM<typeop, op,inner_op, instr_asm, OpNode, VPR4Out, mem, Pseudo>;
@@ -497,11 +489,12 @@ def JC : CBranch<4,0,0b00101, "jc">;
 
 //call callr
 def CALL : JumpLink<0x4, 0, 0b01101, "call">;
-def CALLR : JumpLinkReg<0x4, 0, 0b111, "callr", GPROut>;
+def CALLR : JumpLinkReg<0x4, 0, 0b00000111, "callr", GPROut>;
 
 //*****************************************data translation instruction******************************//
 def MovVR : DSPPseudo<(outs VPR4Out:$ra), (ins GPROut:$imm16,GPROut:$imm2,GPROut:$imm3,GPROut:$imm4), "", [(set VPR4Out:$ra,(DSPV4 GPROut:$imm16,GPROut:$imm2,GPROut:$imm3,GPROut:$imm4))]>;
-def MovGR : DSPPseudo<(outs GPROut:$ra), (ins CPURegs:$rs,simm16:$in), "", [(set GPROut:$ra, (DSPMovGR CPURegs:$rs, immSExt16:$in)) ]>;
+//set GPROut:$ra, (DSPMovGR GPROut:$rs, immSExt16:$in)
+def MovGR : DSPPseudo<(outs CPURegs:$ra), (ins CPURegs:$rs,simm16:$in), "", []>;
 def LEA   : DSPPseudo<(outs GPROut:$ra), (ins mem:$addr),"",[(set GPROut:$ra, addr:$addr)]>;
 
 def MovG2V40 : MovBase<4,6,0b0000100111,"movg2v40",insertelt,VPR4Out,GPROut,ALU32_V_SLOT01>;
@@ -541,7 +534,7 @@ def SRA : shift_rotate_reg<7,1,0b00001010, 0x00, "sra", sra,CPURegs>;
 def SRL : shift_rotate_reg<7,1,0b00001011,0x00,"srl",srl,CPURegs>;
 def AND : ArithLogicR<0x7,0x1,0b00000100,"and", and, ALU32_S_SLOT01,CPURegs,1>;
 def XORu : ArithLogicR<7,1,0b00000110, "xor", xor, ALU32_S_SLOT01, CPURegs,1>;
-def EQ   :SetCC_R<7,4,0b000000000,"eq",seteq,CPURegs>;
+def EQ   :SetCC_R<7,4,0b00000000,"eq",seteq,CPURegs>;
 def NEQ   :SetCC_R<7,4,0b00000001,"neq",setne,CPURegs>;
 def GT   :SetCC_R<7,4,0b00000010,"gt",setgt,CPURegs>;
 def GTU   :SetCC_R<7,4,0b00001010,"gtu",setugt,CPURegs>;
@@ -571,7 +564,7 @@ def MIN  :MMBase<7,1,0b00001000,"min",DSPMIN,ALU32_S_SLOT01,GPROut>;
 //**************************************memory instruction*******************************************//
 /// Load and Store Instructions
 defm LD : LoadM32<defaultOp.Value,2,0b00010, "load32", load_a>;
-defm ST : StoreM32<7,3,0b010010, "store32", store_a>;
+defm ST : StoreM32<7,3,0b10010, "store32", store_a>;
 def LUi : LoadUpper<0,2,0b00011, "lui", GPROut, uimm16>;
 def LU : DSPPseudo<(outs CPURegs:$ra), (ins uimm16:$in), "", []>;
 
@@ -602,7 +595,7 @@ class DSPPat<dag pattern, dag result> : Pat<pattern, result>{
 }
 
 
-def :Pat<(DSPHi tglobaladdr:$in),(MovIGH  ZERO, tglobaladdr:$in)>;
+def :Pat<(i32(DSPHi tglobaladdr:$in)),(MovIGH ZERO, tglobaladdr:$in)>;
 
 
 def :Pat<(add CPURegs:$hi, (DSPLo tglobaladdr:$lo)),

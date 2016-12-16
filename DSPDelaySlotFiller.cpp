@@ -99,6 +99,7 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 	}
 	MIBundleBuilder(MBB, I, std::next(I, 2));
 	BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+	//BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP_S));
 
   }
 
