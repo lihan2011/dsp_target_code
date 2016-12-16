@@ -18,6 +18,7 @@ detail below:
 #include "llvm/Analysis/DependenceAnalysis.h"
 #include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -35,6 +36,7 @@ detail below:
 #include "llvm/Support/Debug.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include <vector>
+#include <deque>
 #include <iostream>
 #include <climits>
 #include <algorithm>
@@ -55,9 +57,12 @@ namespace llvm {
 	void initializeDSPSWLoopsPass(PassRegistry&);
 }
 
+cl::opt<bool> EnableSwPipeline("sw-pipeline", cl::init(false), cl::NotHidden,
+	cl::desc("start software pipeline"));
+
 namespace {
 	class NodeSet;
-
+	class SMSchedule;
 	typedef SmallVector<NodeSet, 8> NodeSetType;
 
 	class DSPSWLoops : public MachineFunctionPass{
@@ -133,6 +138,8 @@ namespace {
 			int ALAP;
 			NodeInfo() :ASAP(0), ALAP(0){};
 		};
+
+		enum OrderKind{ BottomUp = 0, TopDown = 1 };
 
 		SetVector<SUnit*> NodeOrder;
 		std::vector<NodeInfo> ScheduleInfo;
@@ -237,6 +244,12 @@ namespace {
 		void colocateNodeSets(NodeSetType &NodeSets);
 
 		void computeNodeOrder(NodeSetType &NodeSets);
+
+		void swapAntiDependences(std::vector<SUnit> &SUnits);
+
+		bool schedulePipeline(SMSchedule &Schedule);
+
+		void generatePipelinedLoop(SMSchedule &SMS);
 	};
 
 	class NodeSet{
@@ -259,6 +272,15 @@ namespace {
 			Colocate(0), ExceedPressure(nullptr) {}
 		unsigned size() const { return Nodes.size(); }
 
+		unsigned count(SUnit *SU) const { return Nodes.count(SU); }
+
+		bool isExceedSU(SUnit *SU) { return ExceedPressure == SU; }
+
+		SUnit *getNode(unsigned i) const { return Nodes[i]; };
+
+		bool insert(SUnit *SU) { return Nodes.insert(SU); }
+
+		void insert(iterator S, iterator E) { Nodes.insert(S, E); }
 		void clear() {
 			Nodes.clear();
 			RecMII = 0;
@@ -291,6 +313,166 @@ namespace {
 
 		void dump() const { print(dbgs()); }
 	};
+
+	/// This class repesents the scheduled code.  The main data structure is a
+	/// map from scheduled cycle to instructions.  During scheduling, the
+	/// data structure explicitly represents all stages/iterations.   When
+	/// the algorithm finshes, the schedule is collapsed into a single stage,
+	/// which represents instructions from different loop iterations.
+	///
+	/// The SMS algorithm allows negative values for cycles, so the first cycle
+	/// in the schedule is the smallest cycle value.
+	class SMSchedule {
+	private:
+		/// Map from execution cycle to instructions.
+		DenseMap<int, std::deque<SUnit *>> ScheduledInstrs;
+
+		/// Map from instruction to execution cycle.
+		std::map<SUnit *, int> InstrToCycle;
+
+		/// Map for each register and the max difference between its uses and def.
+		/// The first element in the pair is the max difference in stages. The
+		/// second is true if the register defines a Phi value and loop value is
+		/// scheduled before the Phi.
+		std::map<unsigned, std::pair<unsigned, bool>> RegToStageDiff;
+
+		/// Keep track of the first cycle value in the schedule.  It starts
+		/// as zero, but the algorithm allows negative values.
+		int FirstCycle;
+
+		/// Keep track of the last cycle value in the schedule.
+		int LastCycle;
+
+		/// The initiation interval (II) for the schedule.
+		int InitiationInterval;
+
+		/// Target machine information.
+		const TargetMachine &ST;
+
+		/// Virtual register information.
+		MachineRegisterInfo &MRI;
+
+		//DFAPacketizer *Resources;
+
+	public:
+		SMSchedule(MachineFunction *mf)
+			: ST(mf->getTarget()), MRI(mf->getRegInfo())
+			/*Resources(ST.getInstrInfo->CreateTargetScheduleState(&ST,nullptr))*/ {
+			FirstCycle = 0;
+			LastCycle = 0;
+			InitiationInterval = 0;
+		}
+
+		~SMSchedule() {
+			ScheduledInstrs.clear();
+			InstrToCycle.clear();
+			RegToStageDiff.clear();
+			//delete Resources;
+		}
+
+		void reset() {
+			ScheduledInstrs.clear();
+			InstrToCycle.clear();
+			RegToStageDiff.clear();
+			FirstCycle = 0;
+			LastCycle = 0;
+			InitiationInterval = 0;
+		}
+
+		/// Set the initiation interval for this schedule.
+		void setInitiationInterval(int ii) { InitiationInterval = ii; }
+
+		/// Return the first cycle in the completed schedule.  This
+		/// can be a negative value.
+		int getFirstCycle() const { return FirstCycle; }
+
+		/// Return the last cycle in the finalized schedule.
+		int getFinalCycle() const { return FirstCycle + InitiationInterval - 1; }
+
+		/// Return the cycle of the earliest scheduled instruction in the dependence
+		/// chain.
+		int earliestCycleInChain(const SDep &Dep);
+
+		/// Return the cycle of the latest scheduled instruction in the dependence
+		/// chain.
+		int latestCycleInChain(const SDep &Dep);
+
+		void computeStart(SUnit *SU, int *MaxEarlyStart, int *MinLateStart,
+			int *MinEnd, int *MaxStart, int II, SwingSchedulerDAG *DAG);
+
+		bool insert(SUnit *SU, int StartCycle, int EndCycle, int II);
+
+		/// Iterators for the cycle to instruction map.
+		typedef DenseMap<int, std::deque<SUnit *>>::iterator sched_iterator;
+		typedef DenseMap<int, std::deque<SUnit *>>::const_iterator
+			const_sched_iterator;
+
+		/// Return true if the instruction is scheduled at the specified stage.
+		bool isScheduledAtStage(SUnit *SU, unsigned StageNum) {
+			return (stageScheduled(SU) == (int)StageNum);
+		}
+
+		/// Return the stage for a scheduled instruction.  Return -1 if
+		/// the instruction has not been scheduled.
+		int stageScheduled(SUnit *SU) const {
+			std::map<SUnit *, int>::const_iterator it = InstrToCycle.find(SU);
+			if (it == InstrToCycle.end())
+				return -1;
+			return (it->second - FirstCycle) / InitiationInterval;
+		}
+
+		/// Return the cycle for a scheduled instruction. This function normalizes
+		/// the first cycle to be 0.
+		unsigned cycleScheduled(SUnit *SU) const {
+			std::map<SUnit *, int>::const_iterator it = InstrToCycle.find(SU);
+			assert(it != InstrToCycle.end() && "Instruction hasn't been scheduled.");
+			return (it->second - FirstCycle) % InitiationInterval;
+		}
+
+		/// Return the maximum stage count needed for this schedule.
+		unsigned getMaxStageCount() {
+			return (LastCycle - FirstCycle) / InitiationInterval;
+		}
+
+		/// Return the max. number of stages/iterations that can occur between a
+		/// register definition and its uses.
+		unsigned getStagesForReg(int Reg, unsigned CurStage) {
+			std::pair<unsigned, bool> Stages = RegToStageDiff[Reg];
+			if (CurStage > getMaxStageCount() && Stages.first == 0 && Stages.second)
+				return 1;
+			return Stages.first;
+		}
+
+		/// The number of stages for a Phi is a little different than other
+		/// instructions. The minimum value computed in RegToStageDiff is 1
+		/// because we assume the Phi is needed for at least 1 iteration.
+		/// This is not the case if the loop value is scheduled prior to the
+		/// Phi in the same stage.  This function returns the number of stages
+		/// or iterations needed between the Phi definition and any uses.
+		unsigned getStagesForPhi(int Reg) {
+			std::pair<unsigned, bool> Stages = RegToStageDiff[Reg];
+			if (Stages.second)
+				return Stages.first;
+			return Stages.first - 1;
+		}
+
+		/// Return the instructions that are scheduled at the specified cycle.
+		std::deque<SUnit *> &getInstructions(int cycle) {
+			return ScheduledInstrs[cycle];
+		}
+
+		bool isValidSchedule(SwingSchedulerDAG *SSD);
+		void finalizeSchedule(SwingSchedulerDAG *SSD);
+		bool orderDependence(SwingSchedulerDAG *SSD, SUnit *SU,
+			std::deque<SUnit *> &Insts);
+		bool isLoopCarried(SwingSchedulerDAG *SSD, MachineInstr *Phi);
+		bool isLoopCarriedDefOfUse(SwingSchedulerDAG *SSD, MachineInstr *Inst,
+			MachineOperand &MO);
+		void print(raw_ostream &os) const;
+		void dump() const;
+	};
+
+
 } // end anonymous namespace
 
 char DSPSWLoops::ID = 0;
@@ -350,7 +532,108 @@ static bool ignoreDependence(const SDep &D, bool isPred) {
 	return D.getKind() == SDep::Anti && isPred;
 }
 
+/// Compute the Pred_L(O) set, as defined in the paper. The set is defined
+/// as the predecessors of the elements of NodeOrder that are not also in
+/// NodeOrder.
+static bool pred_L(SetVector<SUnit *> &NodeOrder,
+	SmallSetVector<SUnit *, 8> &Preds,
+	const NodeSet *S = nullptr) {
+	Preds.clear();
+	for (SetVector<SUnit *>::iterator I = NodeOrder.begin(), E = NodeOrder.end();
+		I != E; ++I) {
+		for (SUnit::pred_iterator PI = (*I)->Preds.begin(), PE = (*I)->Preds.end();
+			PI != PE; ++PI) {
+			if (S && S->count(PI->getSUnit()) == 0)
+				continue;
+			if (ignoreDependence(*PI, true))
+				continue;
+			if (NodeOrder.count(PI->getSUnit()) == 0)
+				Preds.insert(PI->getSUnit());
+		}
+		// Back-edges are predecessors with an anti-dependence.
+		for (SUnit::const_succ_iterator IS = (*I)->Succs.begin(),
+			ES = (*I)->Succs.end();
+			IS != ES; ++IS) {
+			if (IS->getKind() != SDep::Anti)
+				continue;
+			if (S && S->count(IS->getSUnit()) == 0)
+				continue;
+			if (NodeOrder.count(IS->getSUnit()) == 0)
+				Preds.insert(IS->getSUnit());
+		}
+	}
+	return Preds.size() > 0;
+}
 
+/// Compute the Succ_L(O) set, as defined in the paper. The set is defined
+/// as the successors of the elements of NodeOrder that are not also in
+/// NodeOrder.
+static bool succ_L(SetVector<SUnit *> &NodeOrder,
+	SmallSetVector<SUnit *, 8> &Succs,
+	const NodeSet *S = nullptr) {
+	Succs.clear();
+	for (SetVector<SUnit *>::iterator I = NodeOrder.begin(), E = NodeOrder.end();
+		I != E; ++I) {
+		for (SUnit::succ_iterator SI = (*I)->Succs.begin(), SE = (*I)->Succs.end();
+			SI != SE; ++SI) {
+			if (S && S->count(SI->getSUnit()) == 0)
+				continue;
+			if (ignoreDependence(*SI, false))
+				continue;
+			if (NodeOrder.count(SI->getSUnit()) == 0)
+				Succs.insert(SI->getSUnit());
+		}
+		for (SUnit::const_pred_iterator PI = (*I)->Preds.begin(),
+			PE = (*I)->Preds.end();
+			PI != PE; ++PI) {
+			if (PI->getKind() != SDep::Anti)
+				continue;
+			if (S && S->count(PI->getSUnit()) == 0)
+				continue;
+			if (NodeOrder.count(PI->getSUnit()) == 0)
+				Succs.insert(PI->getSUnit());
+		}
+	}
+	return Succs.size() > 0;
+}
+
+/// Return true if Set1 is a subset of Set2.
+template <class S1Ty, class S2Ty> 
+static bool isSubset(S1Ty &Set1, S2Ty &Set2) {
+	for (typename S1Ty::iterator I = Set1.begin(), E = Set1.end(); I != E; ++I)
+	if (Set2.count(*I) == 0)
+		return false;
+	return true;
+}
+
+/// Return true if Set1 contains elements in Set2. The elements in common
+/// are returned in a different container.
+static bool isIntersect(SmallSetVector<SUnit *, 8> &Set1, const NodeSet &Set2,
+	SmallSetVector<SUnit *, 8> &Result) {
+	Result.clear();
+	for (unsigned i = 0, e = Set1.size(); i != e; ++i) {
+		SUnit *SU = Set1[i];
+		if (Set2.count(SU) != 0)
+			Result.insert(SU);
+	}
+	return !Result.empty();
+}
+
+/// Return true if Inst1 defines a value that is used in Inst2.
+static bool hasDataDependence(SUnit *Inst1, SUnit *Inst2) {
+	for (auto &SI : Inst1->Succs)
+	if (SI.getSUnit() == Inst2 && SI.getKind() == SDep::Data)
+		return true;
+	return false;
+}
+
+
+//*********************************************function for find schedule*****************
+void SMSchedule::computeStart(SUnit *SU, int *MaxEarlyStart, int *MinLateStart,
+	int *MinEnd, int *MaxStart, int II,
+	SwingSchedulerDAG *DAG){
+
+}
 
 //********************************
 bool DSPSWLoops::canPipelineLoop(MachineLoop *L){
@@ -434,6 +717,7 @@ bool DSPSWLoops::swingModuloScheduler(MachineLoop *L){
 	std::cout << "size	" << size<< std::endl;
 	std::cout << "size2	" << size2 << std::endl;
 	SMS.enterRegion(MBB, MBB->getFirstNonPHI(), MBB->getFirstTerminator(), size2);
+	BuildMI(MBB, DebugLoc(), TII->get(DSP::NOP_S));
 	//SMS.enterRegion(MBB, MBB->begin(), MBB->getFirstTerminator(), size);
 	SMS.schedule();
 	SMS.exitRegion();
@@ -453,13 +737,30 @@ void SwingSchedulerDAG::schedule(){
 	std::cout << "resMII" << ResMII << std::endl;
 
 	unsigned MII = ResMII;
+	NodeSet AllSet;
 
+	for (int i = 0; i < SUnits.size(); i++){
+		AllSet.insert(&SUnits[i]);
+	}
+	NodeSets.push_back(AllSet);
 	computeNodeFunctions(NodeSets);
+
+	DEBUG({
+		for (auto &I : NodeSets) {
+			dbgs() << "  NodeSet ";
+			I.dump();
+		}
+	});
+
+	computeNodeOrder(NodeSets);
+
+	SMSchedule Schedule(pass.MF);
+	bool Scheduled = schedulePipeline(Schedule);
 }
 
 //create the adjacency structure of the nodes in the graph
 void SwingSchedulerDAG::Circuits::createAdjacencyStructure(SwingSchedulerDAG *DAG){
-	BitVector Added(SUnits.size() + 1);
+	BitVector Added(SUnits.size());
 	for (int i = 0, e = SUnits.size(); i != e; i++){
 		Added.reset();
 		// Add any successor to the adjacency matrix and exclude duplicates.
@@ -467,11 +768,11 @@ void SwingSchedulerDAG::Circuits::createAdjacencyStructure(SwingSchedulerDAG *DA
 		{
 			if (SI.getKind() == SDep::Anti&&!SI.getSUnit()->getInstr()->isPHI())
 				continue;
-
+			if (SI.getSUnit()->getInstr()->isTerminator())
+				continue;
 			// N represent position in SUnits
 			int N = SI.getSUnit()->NodeNum;
-			unsigned Op = SI.getSUnit()->getInstr()->getOpcode();
-			if (N>=0&&!Added.test(N))
+			if (!Added.test(N))
 			{
 				AdjK[i].push_back(N);
 				Added.set(N);
@@ -486,7 +787,7 @@ void SwingSchedulerDAG::Circuits::createAdjacencyStructure(SwingSchedulerDAG *DA
 				continue;
 			if (PI.getKind() == SDep::Order && PI.getSUnit()->getInstr()->mayLoad()&&PI.getSUnit()->getInstr()->isTerminator()) {
 				int N = PI.getSUnit()->NodeNum;
-				if (N>=0&&!Added.test(N)) {
+				if (!Added.test(N)) {
 					AdjK[i].push_back(N);
 					Added.set(N);
 				}
@@ -532,9 +833,23 @@ bool SwingSchedulerDAG::Circuits::circuit(int V, int S, NodeSetType &NodeSets,bo
 	}
 	Stack.pop_back();
 	return F;
-	return false;
 }
 
+void SwingSchedulerDAG::Circuits::unblock(int U){
+	Blocked.reset(U);
+	SmallPtrSet<SUnit *, 4> &BU = B[U];
+	while (!BU.empty()) {
+		SmallPtrSet<SUnit *, 4>::iterator SI = BU.begin();
+		assert(SI != BU.end() && "Invalid B set.");
+		SUnit *W = *SI;
+		BU.erase(W);
+		if (Blocked.test(W->NodeNum))
+			unblock(W->NodeNum);
+	}
+}
+/// Return true for an order dependence that is loop carried potentially.
+/// An order dependence is loop carried if the destination defines a value
+/// that may be used by the source in a subsequent iteration.
 bool SwingSchedulerDAG::isLoopCarriedOrder(SUnit *Source, const SDep &Dep,
 	bool isSucc) {
 	if (!isOrder(Source, Dep) || Dep.isArtificial())
@@ -609,30 +924,50 @@ bool SwingSchedulerDAG::computeDelta(MachineInstr *MI, unsigned &Delta) {
 	Delta = D;
 	return true;
 }
+
+void SwingSchedulerDAG::swapAntiDependences(std::vector<SUnit> &SUnits){
+	SmallVector<std::pair<SUnit *, SDep>, 8> DepsAdded;
+	for (unsigned i = 0, e = SUnits.size(); i != e; ++i) {
+		SUnit *SU = &SUnits[i];
+		for (SUnit::pred_iterator IP = SU->Preds.begin(), EP = SU->Preds.end();
+			IP != EP; ++IP) {
+			if (IP->getKind() != SDep::Anti)
+				continue;
+			DepsAdded.push_back(std::make_pair(SU, *IP));
+		}
+	}
+	for (SmallVector<std::pair<SUnit *, SDep>, 8>::iterator I = DepsAdded.begin(),
+		E = DepsAdded.end();
+		I != E; ++I) {
+		// Remove this anti dependency and add one in the reverse direction.
+		SUnit *SU = I->first;
+		SDep &D = I->second;
+		SUnit *TargetSU = D.getSUnit();
+		unsigned Reg = D.getReg();
+		unsigned Lat = D.getLatency();
+		SU->removePred(D);
+		SDep Dep(SU, SDep::Anti, Reg);
+		Dep.setLatency(Lat);
+		TargetSU->addPred(Dep);
+	}
+}
 void  SwingSchedulerDAG::findCircuits(NodeSetType &NodeSets){
 
+	// Swap all the anti dependences in the DAG. That means it is no longer a DAG,
+	// but we do this to find the circuits, and then change them back.
+	swapAntiDependences(SUnits);
 	Circuits Cir(SUnits);
+
 	Cir.createAdjacencyStructure(this);
 
 	for (int i = 0, e = SUnits.size(); i != e; ++i) {
 		Cir.reset();
-		Cir.circuit(i, i, NodeSets);
+		Cir.circuit(i, i, NodeSets,false);
 	}
-
+	swapAntiDependences(SUnits);      
 }
 
-void SwingSchedulerDAG::Circuits::unblock(int U){
-	Blocked.reset(U);
-	SmallPtrSet<SUnit *, 4> &BU = B[U];
-	while (!BU.empty()) {
-		SmallPtrSet<SUnit *, 4>::iterator SI = BU.begin();
-		assert(SI != BU.end() && "Invalid B set.");
-		SUnit *W = *SI;
-		BU.erase(W);
-		if (Blocked.test(W->NodeNum))
-			unblock(W->NodeNum);
-	}
-}
+
 
 
 /// Update the phi dependences to the DAG because ScheduleDAGInstrs no longer
@@ -679,8 +1014,8 @@ void SwingSchedulerDAG::computeNodeFunctions(NodeSetType &NodeSets){
 	}
 	std::cout << "ASAP " << std::endl;
 	//compute ALAP
-	for (ScheduleDAGTopologicalSort::const_iterator I = Topo.begin(),
-		E = Topo.end(); I != E; ++I)
+	for (ScheduleDAGTopologicalSort::const_reverse_iterator I = Topo.rbegin(),
+		E = Topo.rend(); I != E; ++I)
 	{
 		int alap =maxASAP;
 		SUnit *SU = &SUnits[*I];
@@ -699,12 +1034,12 @@ void SwingSchedulerDAG::computeNodeFunctions(NodeSetType &NodeSets){
 
 
 
-	/*for (NodeSet &I : NodeSets){
+	for (NodeSet &I : NodeSets){
 		for (SUnit* su : I){
 			I.MaxMov = std::max(I.MaxMov, this->getMOV(su));
 			I.MaxDepth = std::max(I.MaxDepth, this->getDepth(su));
 		}
-	}*/
+	}
 
 	DEBUG({
 		for (unsigned i = 0; i < SUnits.size(); i++) {
@@ -717,6 +1052,249 @@ void SwingSchedulerDAG::computeNodeFunctions(NodeSetType &NodeSets){
 		}
 	});
 
+}
+
+/// Compute an ordered list of the dependence graph nodes, which
+/// indicates the order that the nodes will be scheduled.  This is a
+/// two-level algorithm. First, a partial order is created, which
+/// consists of a list of sets ordered from highest to lowest priority.
+void SwingSchedulerDAG::computeNodeOrder(NodeSetType &NodeSets) {
+	SmallSetVector<SUnit *, 8> R;
+	NodeOrder.clear();
+	std::cout << "size"<< NodeSets.size() << std::endl;
+	for (auto &Nodes : NodeSets) {
+		DEBUG(dbgs() << "NodeSet size " << Nodes.size() << "\n");
+		OrderKind Order;
+		SmallSetVector<SUnit *, 8> N;
+		if (pred_L(NodeOrder, N) && isSubset(N, Nodes)) {
+			R.insert(N.begin(), N.end());
+			Order = BottomUp;
+			DEBUG(dbgs() << "  Bottom up (preds) ");
+		}
+		else if (succ_L(NodeOrder, N) && isSubset(N, Nodes)) {
+			R.insert(N.begin(), N.end());
+			Order = TopDown;
+			DEBUG(dbgs() << "  Top down (succs) ");
+		}
+		else if (isIntersect(N, Nodes, R)) {
+			// If some of the successors are in the existing node-set, then use the
+			// top-down ordering.
+			Order = TopDown;
+			DEBUG(dbgs() << "  Top down (intersect) ");
+		}
+		else if (NodeSets.size() == 1) {
+			for (auto &N : Nodes)
+			if (N->Succs.size() == 0)
+				R.insert(N);
+			Order = BottomUp;
+			DEBUG(dbgs() << "  Bottom up (all) ");
+		}
+		else {
+			// Find the node with the highest ASAP.
+			SUnit *maxASAP = nullptr;
+			for (SUnit *SU : Nodes) {
+				if (maxASAP == nullptr || getASAP(SU) >= getASAP(maxASAP))
+					maxASAP = SU;
+			}
+			R.insert(maxASAP);
+			Order = BottomUp;
+			DEBUG(dbgs() << "  Bottom up (default) ");
+		}
+
+		while (!R.empty()) {
+			if (Order == TopDown) {
+				// Choose the node with the maximum height.  If more than one, choose
+				// the node with the lowest MOV. If still more than one, check if there
+				// is a dependence between the instructions.
+				while (!R.empty()) {
+					SUnit *maxHeight = nullptr;
+					for (SUnit *I : R) {
+						if (maxHeight == 0 || getHeight(I) > getHeight(maxHeight))
+							maxHeight = I;
+						else if (getHeight(I) == getHeight(maxHeight) &&
+							getMOV(I) < getMOV(maxHeight) &&
+							!hasDataDependence(maxHeight, I))
+							maxHeight = I;
+						else if (hasDataDependence(I, maxHeight))
+							maxHeight = I;
+					}
+					NodeOrder.insert(maxHeight);
+					DEBUG(dbgs() << maxHeight->NodeNum << " ");
+					R.remove(maxHeight);
+					for (const auto &I : maxHeight->Succs) {
+						if (Nodes.count(I.getSUnit()) == 0)
+							continue;
+						if (NodeOrder.count(I.getSUnit()) != 0)
+							continue;
+						if (ignoreDependence(I, false))
+							continue;
+						R.insert(I.getSUnit());
+					}
+					// Back-edges are predecessors with an anti-dependence.
+					for (const auto &I : maxHeight->Preds) {
+						if (I.getKind() != SDep::Anti)
+							continue;
+						if (Nodes.count(I.getSUnit()) == 0)
+							continue;
+						if (NodeOrder.count(I.getSUnit()) != 0)
+							continue;
+						R.insert(I.getSUnit());
+					}
+				}
+				Order = BottomUp;
+				DEBUG(dbgs() << "\n   Switching order to bottom up ");
+				SmallSetVector<SUnit *, 8> N;
+				if (pred_L(NodeOrder, N, &Nodes))
+					R.insert(N.begin(), N.end());
+			}
+			else {
+				// Choose the node with the maximum depth.  If more than one, choose
+				// the node with the lowest MOV. If there is still more than one, check
+				// for a dependence between the instructions.
+				while (!R.empty()) {
+					SUnit *maxDepth = nullptr;
+					for (SUnit *I : R) {
+						if (maxDepth == 0 || getDepth(I) > getDepth(maxDepth))
+							maxDepth = I;
+						else if (getDepth(I) == getDepth(maxDepth) &&
+							getMOV(I) < getMOV(maxDepth) &&
+							!hasDataDependence(I, maxDepth))
+							maxDepth = I;
+						else if (hasDataDependence(maxDepth, I))
+							maxDepth = I;
+					}
+					NodeOrder.insert(maxDepth);
+					DEBUG(dbgs() << maxDepth->NodeNum << " ");
+					R.remove(maxDepth);
+					if (Nodes.isExceedSU(maxDepth)) {
+						Order = TopDown;
+						R.clear();
+						R.insert(Nodes.getNode(0));
+						break;
+					}
+					for (const auto &I : maxDepth->Preds) {
+						if (Nodes.count(I.getSUnit()) == 0)
+							continue;
+						if (NodeOrder.count(I.getSUnit()) != 0)
+							continue;
+						if (I.getKind() == SDep::Anti)
+							continue;
+						R.insert(I.getSUnit());
+					}
+					// Back-edges are predecessors with an anti-dependence.
+					for (const auto &I : maxDepth->Succs) {
+						if (I.getKind() != SDep::Anti)
+							continue;
+						if (Nodes.count(I.getSUnit()) == 0)
+							continue;
+						if (NodeOrder.count(I.getSUnit()) != 0)
+							continue;
+						R.insert(I.getSUnit());
+					}
+				}
+				Order = TopDown;
+				DEBUG(dbgs() << "\n   Switching order to top down ");
+				SmallSetVector<SUnit *, 8> N;
+				if (succ_L(NodeOrder, N, &Nodes))
+					R.insert(N.begin(), N.end());
+			}
+		}
+		DEBUG(dbgs() << "\nDone with Nodeset\n");
+	}
+
+	DEBUG({
+		dbgs() << "Node order: ";
+		for (SUnit *I : NodeOrder)
+			dbgs() << " " << I->NodeNum << " ";
+		dbgs() << "\n";
+	});
+}
+
+/// Process the nodes in the computed order and create the pipelined schedule
+/// of the instructions, if possible. Return true if a schedule is found.
+bool SwingSchedulerDAG::schedulePipeline(SMSchedule &sms){
+	if (NodeOrder.size() == 0)
+		return false;
+
+	bool scheduleFound = false;
+	/*for (unsigned II = MII; II < MII + 10 && !scheduleFound; ++II) {
+		sms.reset();
+		sms.setInitiationInterval(II);
+
+		DEBUG(dbgs() << "Try to schedule with " << II << "\n");
+
+		SetVector<SUnit *>::iterator NI = NodeOrder.begin();
+		SetVector<SUnit *>::iterator NE = NodeOrder.end();
+		do {
+			SUnit *SU = *NI;
+
+			// Compute the schedule time for the instruction, which is based
+			// upon the scheduled time for any predecessors/successors.
+			int EarlyStart = INT_MIN;
+			int LateStart = INT_MAX;
+			// These values are set when the size of the schedule window is limited
+			// due to chain dependences.
+			int SchedEnd = INT_MAX;
+			int SchedStart = INT_MIN;
+			sms.computeStart(SU, &EarlyStart, &LateStart, &SchedEnd, &SchedStart,
+				II, this);
+			DEBUG({
+				dbgs() << "Inst (" << SU->NodeNum << ") ";
+				SU->getInstr()->dump();
+				dbgs() << "\n";
+			});
+			DEBUG({
+				dbgs() << "\tes: " << EarlyStart << " ls: " << LateStart
+				<< " me: " << SchedEnd << " ms: " << SchedStart << "\n";
+			});
+
+			if (EarlyStart > LateStart || SchedEnd < EarlyStart ||
+				SchedStart > LateStart)
+				scheduleFound = false;
+			else if (EarlyStart != INT_MIN && LateStart == INT_MAX) {
+				SchedEnd = std::min(SchedEnd, EarlyStart + (int)II - 1);
+				scheduleFound = sms.insert(SU, EarlyStart, SchedEnd, II);
+			}
+			else if (EarlyStart == INT_MIN && LateStart != INT_MAX) {
+				SchedStart = std::max(SchedStart, LateStart - (int)II + 1);
+				scheduleFound = sms.insert(SU, LateStart, SchedStart, II);
+			}
+			else if (EarlyStart != INT_MIN && LateStart != INT_MAX) {
+				SchedEnd =
+					std::min(SchedEnd, std::min(LateStart, EarlyStart + (int)II - 1));
+				// When scheduling a Phi it is better to start at the late cycle and go
+				// backwards. The default order may insert the Phi too far away from
+				// its first dependence.
+				if (SU->getInstr()->isPHI())
+					scheduleFound = sms.insert(SU, SchedEnd, EarlyStart, II);
+				else
+					scheduleFound = sms.insert(SU, EarlyStart, SchedEnd, II);
+			}
+			else {
+				int FirstCycle = sms.getFirstCycle();
+				scheduleFound = sms.insert(SU, FirstCycle + getASAP(SU),
+					FirstCycle + getASAP(SU) + II - 1, II);
+			}
+			// Even if we find a schedule, make sure the schedule doesn't exceed the
+			// allowable number of stages. We keep trying if this happens.
+			DEBUG({
+				if (!scheduleFound)
+				dbgs() << "\tCan't schedule\n";
+			});
+		} while (++NI != NE && scheduleFound);
+
+		// If a schedule is found, check if it is a valid schedule too.
+		if (scheduleFound)
+			scheduleFound = sms.isValidSchedule(this);
+
+	DEBUG(dbgs() << "Schedule Found? " << scheduleFound << "\n");
+
+	if (scheduleFound)
+		sms.finalizeSchedule(this);
+	else
+		sms.reset();
+	}*/
+	return false;
 }
 
 bool DSPSWLoops::Process(MachineLoop *L){

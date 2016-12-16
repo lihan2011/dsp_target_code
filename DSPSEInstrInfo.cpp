@@ -225,22 +225,22 @@ void DSPSEInstrInfo::ExpandMovGR(MachineBasicBlock &MBB,
 	case MachineOperand::MO_ConstantPoolIndex:{
 												 //std::cout << "constant pool" << std::endl;
 												  BuildMI(MBB, I, I->getDebugLoc(), get(Opc2), DesReg).addOperand(I->getOperand(1)).addOperand(I->getOperand(2));
+												  //BuildMI(MBB, I, I->getDebugLoc(), get(Opc2), DesReg).addOperand(I->getOperand(2));
 												  //std::cout << "Lo is" << imm << std::endl;
 												  BuildMI(MBB, I, I->getDebugLoc(), get(Opc1), DesReg).addOperand(I->getOperand(1)).addOperand(I->getOperand(2));
+												  //BuildMI(MBB, I, I->getDebugLoc(), get(Opc1), DesReg).addOperand(I->getOperand(2));
 												 // std::cout << "Hi is" << imm << std::endl;
-												
 	}  break;
 	case MachineOperand::MO_Immediate:{
 										 // std::cout << "immediate" << std::endl;
 										  imm = I->getOperand(2).getImm();
-										 // std::cout << "imm is" << imm << std::endl;
-										 // std::cout << "desreg is" << DesReg << std::endl;
-										 // std::cout << "Srcreg is" << DesReg << std::endl;
 										  short Hi = (imm) >> 16;
 										  short Lo = (imm);
-										  BuildMI(MBB, I, I->getDebugLoc(), get(Opc2), DesReg).addReg(SrcReg).addImm(Lo);
+										 BuildMI(MBB, I, I->getDebugLoc(), get(Opc2), DesReg).addReg(SrcReg).addImm(Lo);
+										  //BuildMI(MBB, I, I->getDebugLoc(), get(Opc2), DesReg).addImm(Lo);
 										 // std::cout << "Lo is" << Lo << std::endl;
 										  BuildMI(MBB, I, I->getDebugLoc(), get(Opc1), DesReg).addReg(SrcReg).addImm(Hi);
+										  //BuildMI(MBB, I, I->getDebugLoc(), get(Opc1), DesReg).addImm(Hi);
 										 // std::cout << "Hi is" << Hi << std::endl;
 									
 	}	  break;
