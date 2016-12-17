@@ -303,7 +303,8 @@ unsigned DSPInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *T
 	else // Conditional branch.
 		BuildCondBr(MBB, TBB, DL, Cond);
 	return 1;
-	}
+}
+
 bool DSPInstrInfo::isConstExtended(MachineInstr *MI) const {
 
 	const uint64_t F = MI->getDesc().TSFlags;

@@ -170,7 +170,8 @@ def CPURegs : RegisterClass<"DSP", [i32], 32, (add
   S0, S1, S2, S3, S4, S5,S6, S7, 
   // Reserved
   GP, FP, LR,
-  SP, RA, PC, EPC)>;
+  SP, RA, SW)>;
+ // SP, RA, PC, EPC)>;
 
 // Hi/Lo Registers class
 def HILO   : RegisterClass<"DSP", [i32], 32, (add HI, LO)>;
@@ -196,8 +197,8 @@ def CPU128Regs : RegisterClass<"DSP", [v16i8,v8i16,v4i32], 128, (add
 					  VR10, VR11,VR12, VR13, 
 					  VR14, VR15)>;
 
-def GPROut :RegisterClass<"DSP",[i32],32,(add(sub CPURegs,SW,PC,EPC))>;
-
+//def GPROut :RegisterClass<"DSP",[i32],32,(add(sub CPURegs,SW,PC,EPC))>;
+def GPROut :RegisterClass<"DSP",[i32],32,(add(sub CPURegs,SW))>;
 def VPR4Out :RegisterClass<"DSP",[v4i32],128,(add CPU128Regs)>;
 def VPR8Out :RegisterClass<"DSP",[v8i16],128,(add CPU128Regs)>;
 def VPR16Out :RegisterClass<"DSP",[v16i8],128,(add CPU128Regs)>;

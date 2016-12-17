@@ -531,7 +531,7 @@ CountValue *DSPHardwareLoops::getLoopTripCount(MachineLoop *L,
     return nullptr;
 
   if (DSPDEBUG) {
-	  std::cout << "**getLoopTripCount**" << std::endl;
+	  std::cout << "\n**getLoopTripCount**" << std::endl;
 	  std::cout << "TOPBlock:" << TopMBB->getFullName() << std::endl;
 	  std::cout << "IncomingBlock:" << Incoming->getFullName() << std::endl;
 	  std::cout << "BackedgeBlock:" << Backedge->getFullName() << std::endl;
@@ -1155,13 +1155,13 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
   //if (!splitLatchBlock(L))
 	 // return false;
 
-  MachineBasicBlock *LastMBB = L->getExitingBlock();
+  MachineBasicBlock *LastMBB = getExitingBlock(L);
   // Don't generate hw loop if the loop has more than one exit.
   if (!LastMBB)
     return false;
 
   if (DSPDEBUG) {
-	  std::cout << "**convertToHardwareLoop**" << std::endl;
+	  std::cout << "\n**convertToHardwareLoop**" << std::endl;
   }
   MachineBasicBlock::iterator LastI = LastMBB->getFirstTerminator();
   if (LastI == LastMBB->end())
@@ -1216,7 +1216,8 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
 
   MachineBasicBlock::iterator InsertPos = Preheader->getFirstTerminator();
 
-
+  ////brief Insert endloop prior to the instruction before terminator,
+  ////but skip the COPY, bump, compare instructions being removed.
   ////LastBlock has only terminate instruction, the loop end position 
   ////(the last instruction in this loop body) isn't inside this MBB.
   //if (LastI == LastMBB->begin())
@@ -1243,7 +1244,6 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
   if (!TripCount)
     return false;
   
-  DEBUG({ dbgs() << "Trip count: \t";  TripCount->print(dbgs()); dbgs() << "\n"; });
   // Is the trip count available in the preheader?
   if (TripCount->isReg()) {
     // There will be a use of the register inserted into the preheader,
@@ -1290,15 +1290,15 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
 		  .addReg(CountReg).addMBB(LoopEnd);
   }
 
-/* ??
+
   // Make sure the loop start always has a reference in the CFG.  We need
   // to create a BlockAddress operand to get this mechanism to work both the
   // MachineBasicBlock and BasicBlock objects need the flag set.
-  LoopStart->setHasAddressTaken();
+  LoopEnd->setHasAddressTaken();
   // This line is needed to set the hasAddressTaken flag on the BasicBlock
   // object.
-  BlockAddress::get(const_cast<BasicBlock *>(LoopStart->getBasicBlock()));
-  */
+  BlockAddress::get(const_cast<BasicBlock *>(LoopEnd->getBasicBlock()));
+  
 
   // Replace the loop branch with a special sentinel instruction for fixing up
   //end address operand in Loop instruction on later Pass.
@@ -1329,6 +1329,7 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
     // Conditional branch to loop start; just delete it.
     LastMBB->erase(LastI);
   }
+  DEBUG({ dbgs() << "Trip count: \t";  TripCount->print(dbgs()); dbgs() << "\n"; });
   delete TripCount;
 
   // The induction operation and the comparison may now be
@@ -1446,7 +1447,7 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
   MachineBasicBlock *ExitingBlock = getExitingBlock(L);
 
   if (DSPDEBUG) {
-		std::cout << "**fixupInductionVariable**" << std::endl;
+		std::cout << "\n**fixupInductionVariable**" << std::endl;
 	  if (Header)
 		  std::cout << "Header:" << Header->getFullName() << std::endl;
 	  if (ExitingBlock)
@@ -1457,6 +1458,16 @@ bool DSPHardwareLoops::fixupInductionVariable(MachineLoop *L) {
 
   if (!Header || !ExitingBlock || !Latch)
     return false;
+
+  //DSP HardwareLoop instruction loop(GR, endaddr) has no start address of loop
+  //It can't process this special case. Otherwise, shall we insert endloop in
+  //ExitingBlock or Latch?
+  if (ExitingBlock != Latch) {
+	  if (DSPDEBUG)
+		  std::cout << "Latch is not one of ExitingBlocks !" << std::endl;
+	  DEBUG(dbgs() << "Latch is not one of ExitingBlocks !\n");
+	  return false;
+  }
 
   // These data structures follow the same concept as the corresponding
   // ones in findInductionRegister (where some comments are).
@@ -1837,7 +1848,7 @@ MachineBasicBlock *DSPHardwareLoops::splitLatchBlock(
 	MachineFunction *MF = Latch->getParent();
 	DebugLoc DL;
 
-	if (!Latch)
+	if (!Latch || Latch->hasAddressTaken())
 		return nullptr;
 
 	// Verify that all existing predecessors have analyzable branches
@@ -1899,6 +1910,13 @@ MachineBasicBlock *DSPHardwareLoops::splitLatchBlock(
 	// Finally, the branch from the PreLatch to the latch.
 	TII->InsertBranch(*PreLatch, Latch, nullptr, EmptyCond, DL);
 	PreLatch->addSuccessor(Latch);
+
+	// Update the dominator information with the new prelatch.
+	if (MDT) {
+		MachineDomTreeNode *HDom = MDT->getNode(Latch);
+		MDT->addNewBlock(PreLatch, HDom->getIDom()->getBlock());
+		MDT->changeImmediateDominator(Latch, PreLatch);
+	}
 
 	return PreLatch;
 }

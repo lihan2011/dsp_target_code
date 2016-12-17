@@ -521,10 +521,10 @@ def MovV2G40 : VMovBase<4,6,0b0000010111,"movv2g40",extractelt,GPROut,VPR4Out,AL
 //def MovV2G20 : VMovBase<4,6,0b0000011011,"movv2g20",extractelt,GPROut,CPU128Regs,ALU32_V_SLOT01>;
 def MovV2G10 : VMovBase<4,6,0b0000011111,"movv2g10",vector_extract,GPROut,VPR16Out,ALU32_V_SLOT01>;
 
-def MovIGH : SMovBase<7,5,0b0001,"movigh",GPROut,Data_Transmission_2_SLOT0123>;
+def MovIGH : SMovBase<7,5,0b0001,"movigh",CPURegs,Data_Transmission_2_SLOT0123>;
 
 let Constraints = "$ra = $rb" in 
-def MovIGL : SMovBase<7,5,0b0101,"movigl",GPROut,Data_Transmission_2_SLOT0123>;
+def MovIGL : SMovBase<7,5,0b0101,"movigl",CPURegs,Data_Transmission_2_SLOT0123>;
 
 
 def VMovG2V40 : RMovBase<4,4,0b10100101,"vmovrg2v40",VPR4Out,GPROut,ALU32_V_SLOT01>;
