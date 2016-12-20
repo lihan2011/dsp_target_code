@@ -301,11 +301,11 @@ namespace {
 					FoundSequentialDependence = true;
 					break;
 				}
-				else if (DepType != SDep::Anti) {
+				else if (DepType == SDep::Data) {
 					FoundSequentialDependence = true;
 					break;
 				}
-				/*else if (DepType == SDep::Anti){
+				else if (DepType == SDep::Anti){
 					unsigned DepReg = SUJ->Succs[i].getReg();
 					if (I->definesRegister(DepReg) ||
 						J->definesRegister(DepReg)) {
@@ -313,7 +313,7 @@ namespace {
 						break;
 
 					}
-				}*/
+				}
 			}
 			if (FoundSequentialDependence) {
 				Dependence = true;
