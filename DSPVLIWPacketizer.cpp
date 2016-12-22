@@ -195,6 +195,10 @@ namespace {
 		return (MI->getDesc().isTerminator() || MI->getDesc().isCall());
 	}
 
+	static bool IsNop(MachineInstr *MI){
+		return (MI->getOpcode()==DSP::NOP);
+	}
+
 	//isLegalToPacketizeTogether:
 	// SUI is the current instruction that is out side of the current packet.
 	// SUJ is the current instruction inside the current packet against which that
@@ -225,6 +229,12 @@ namespace {
 			Dependence = true;
 			return false;
 		}
+
+		if (IsNop(I) || IsNop(J))
+		{
+			Dependence = true;
+			return false;
+		}
 		//check if SUI is the successor of SUJ
 		if (SUJ->isSucc(SUI)){
 			for (unsigned i = 0; (i < SUJ->Succs.size()) && !FoundSequentialDependence; ++i){
@@ -246,7 +256,6 @@ namespace {
 
 				if ((SUI->getInstr()->getOpcode() == DSP::RetLR) || (SUJ->getInstr()->getOpcode() == DSP::RetLR) ||
 					(SUI->getInstr()->getOpcode() == DSP::Jmp) || (SUJ->getInstr()->getOpcode() == DSP::Jmp) ||
-					(SUI->getInstr()->getOpcode() == DSP::NOP) || (SUJ->getInstr()->getOpcode() == DSP::NOP) ||
 					(SUI->getInstr()->getOpcode() == DSP::Ret) || (SUJ->getInstr()->getOpcode() == DSP::Ret) ||
 					(SUI->getInstr()->getOpcode() == DSP::JC) || (SUJ->getInstr()->getOpcode() == DSP::JC)
 					){
@@ -358,6 +367,9 @@ namespace {
 			return true;
 
 		if (MI->isEHLabel())
+			return true;
+
+		if (MI->isReturn())
 			return true;
 		return false;
 	}

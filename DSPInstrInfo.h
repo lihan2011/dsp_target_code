@@ -98,6 +98,13 @@ namespace llvm{
 		DFAPacketizer *CreateTargetScheduleState(const TargetMachine *TM,
 			const ScheduleDAG *DAG) const;
 
+		/// For instructions with a base and offset, return the position of the
+		/// If the instruction is an increment of a constant value, return the amount.
+		bool getIncrementValue(const MachineInstr *MI, int &Value) const override;
+
+		bool getBaseAndOffset(const MachineInstr *MI,
+			int &BasePos,
+			unsigned int OffsetPos) const override;
 		//unsigned CaculateNumOfMemInst(MachineLoop *L);
 		//unsigned CaculateNumOfAluInst(MachineLoop *L);
 	};

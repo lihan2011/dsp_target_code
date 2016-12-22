@@ -563,6 +563,7 @@ def MIN  :MMBase<7,1,0b00001000,"min",DSPMIN,ALU32_S_SLOT01,GPROut>;
 
 //**************************************memory instruction*******************************************//
 /// Load and Store Instructions
+let hasDelaySlot = 1 in 
 defm LD : LoadM32<defaultOp.Value,2,0b00010, "load32", load_a>;
 defm ST : StoreM32<7,3,0b10010, "store32", store_a>;
 def LUi : LoadUpper<0,2,0b00011, "lui", GPROut, uimm16>;

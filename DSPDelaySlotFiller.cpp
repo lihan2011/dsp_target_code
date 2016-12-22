@@ -90,9 +90,16 @@ static bool isUseOutputReg(MachineInstr *I, unsigned Reg){
 		if (!MO.isReg() || !MO.isUse())
 			continue;
 		unsigned MOReg = MO.getReg();
-		bool Found = (MOReg == Reg);
+		Found = (MOReg == Reg);
+		if (Found) break;
 	}
 	return Found;
+}
+static void InsertNopOfNum(MachineBasicBlock &MBB,Iter I, unsigned num, const DSPInstrInfo *TII){
+	for (int i = 0; i < num; i++)
+	{
+		BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+	}
 }
 /// runOnMachineBasicBlock - Fill in delay slots for the given basic block.
 /// We assume there is only one delay slot per delayed instruction.
@@ -108,17 +115,37 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 	const DSPInstrInfo *TII = static_cast<const DSPInstrInfo*>(TM.getInstrInfo());
 	if (I->getOpcode() == DSP::LD){
 		unsigned reg = I->getOperand(0).getReg();
-		Iter next = std::next(I);
-		if (!isUseOutputReg(next,reg)) continue;
+		auto Next = std::next(I,1);
+		auto Next_2 = std::next(I, 2);
+		if (Next == MBB.end()){
+			InsertNopOfNum(MBB, I, 2, TII);
+			continue;
+		}
+		if (Next_2 == MBB.end())
+		{
+			InsertNopOfNum(MBB, I, 1, TII);
+			continue;
+		}
+		if (isUseOutputReg(Next, reg)) {
+			InsertNopOfNum(MBB, I, 2, TII);
+			continue;
+		}
+		else if (isUseOutputReg(Next_2, reg))
+		{
+			InsertNopOfNum(MBB, I, 1, TII);
+			continue;
+		}
+		else continue;
 	}
     // Bundle the NOP to the instruction with the delay slot.
     
-	for (int i = 0; i < 2; i++)
+	/*for (int i = 0; i < 2; i++)
 	{
 		BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
-	}
-	MIBundleBuilder(MBB, I, std::next(I, 2));
-	BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+	}*/
+	InsertNopOfNum(MBB, I, 2, TII);
+	//MIBundleBuilder MIB(MBB, I, std::next(I, 2));
+	//MIB.append()
 	//BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP_S));
 
   }

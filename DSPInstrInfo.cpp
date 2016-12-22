@@ -316,4 +316,20 @@ const ScheduleDAG *DAG) const {
 	const InstrItineraryData *II = TM->getInstrItineraryData();
 	return TM->getSubtarget<DSPGenSubtargetInfo>().createDFAPacketizer(II);
 }
+bool DSPInstrInfo::getBaseAndOffset(const MachineInstr *MI, int &Value, unsigned int offset) const {
+	return false;
+}
+/// If the instruction is an increment of a constant value, return the amount.
+bool DSPInstrInfo::getIncrementValue(const MachineInstr *MI,
+	int &Value) const {
+	if (isPostIncrement(MI)) {
+		unsigned AccessSize;
+		return getBaseAndOffset(MI, Value, AccessSize);
+	}
+	if (MI->getOpcode() == DSP::ADDiu) {
+		Value = MI->getOperand(2).getImm();
+		return true;
+	}
 
+	return false;
+}
