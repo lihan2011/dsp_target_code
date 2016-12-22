@@ -80,6 +80,20 @@ static bool isReturn(const MachineInstr *MI){
 static bool isVLIW(const MachineInstr *MI){
 	return false;
 }
+
+//read the ld output reg
+static bool isUseOutputReg(MachineInstr *I, unsigned Reg){
+	bool isPhys = TargetRegisterInfo::isPhysicalRegister(Reg);
+	bool Found = false;
+	for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i) {
+		const MachineOperand &MO = I->getOperand(i);
+		if (!MO.isReg() || !MO.isUse())
+			continue;
+		unsigned MOReg = MO.getReg();
+		bool Found = (MOReg == Reg);
+	}
+	return Found;
+}
 /// runOnMachineBasicBlock - Fill in delay slots for the given basic block.
 /// We assume there is only one delay slot per delayed instruction.
 bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
@@ -91,8 +105,14 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 
     ++FilledSlots;
     Changed = true;
+	const DSPInstrInfo *TII = static_cast<const DSPInstrInfo*>(TM.getInstrInfo());
+	if (I->getOpcode() == DSP::LD){
+		unsigned reg = I->getOperand(0).getReg();
+		Iter next = std::next(I);
+		if (!isUseOutputReg(next,reg)) continue;
+	}
     // Bundle the NOP to the instruction with the delay slot.
-    const DSPInstrInfo *TII = static_cast<const DSPInstrInfo*>(TM.getInstrInfo());
+    
 	for (int i = 0; i < 2; i++)
 	{
 		BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));

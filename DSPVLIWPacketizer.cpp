@@ -246,6 +246,8 @@ namespace {
 
 				if ((SUI->getInstr()->getOpcode() == DSP::RetLR) || (SUJ->getInstr()->getOpcode() == DSP::RetLR) ||
 					(SUI->getInstr()->getOpcode() == DSP::Jmp) || (SUJ->getInstr()->getOpcode() == DSP::Jmp) ||
+					(SUI->getInstr()->getOpcode() == DSP::NOP) || (SUJ->getInstr()->getOpcode() == DSP::NOP) ||
+					(SUI->getInstr()->getOpcode() == DSP::Ret) || (SUJ->getInstr()->getOpcode() == DSP::Ret) ||
 					(SUI->getInstr()->getOpcode() == DSP::JC) || (SUJ->getInstr()->getOpcode() == DSP::JC)
 					){
 					FoundSequentialDependence = true;
@@ -526,13 +528,13 @@ namespace {
 				CurrentPacketMIs.push_back(nvjMI);
 			}
 			else {
-				MachineBasicBlock::iterator MII = MI;
+				/*MachineBasicBlock::iterator MII = MI;
 				++MII;
 				if (MII->getOpcode() == DSP::Ret || MII->getOpcode() == DSP::RetLR||MII->getOpcode()==DSP::NOP){
 					endPacket(MBB, MI);
 				}
 				else 
-					judgeSlots(MBB, MI);
+					judgeSlots(MBB, MI);*/
 				ResourceTracker->reserveResources(MI);
 				CurrentPacketMIs.push_back(MI);
 			}

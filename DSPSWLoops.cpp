@@ -784,16 +784,16 @@ void SwingSchedulerDAG::schedule(){
 	AliasAnalysis *AA = pass.AA;
 	buildSchedGraph(AA);
 	Topo.InitDAGTopologicalSorting();
-	std::cout << "after build sg" << std::endl;
 	NodeSetType NodeSets;
 	findCircuits(NodeSets);
 
 	unsigned ResMII = calculateResMII(&L);
 	std::cout << "resMII" << ResMII << std::endl;
 
-	unsigned MII = ResMII;
+	MII = ResMII;
 	NodeSet AllSet;
 
+	assert(MII != 0 && "MII cannot be ZERO");
 	for (int i = 0; i < SUnits.size(); i++){
 		AllSet.insert(&SUnits[i]);
 	}
@@ -810,7 +810,7 @@ void SwingSchedulerDAG::schedule(){
 	computeNodeOrder(NodeSets);
 
 	SMSchedule Schedule(pass.MF);
-	//bool Scheduled = schedulePipeline(Schedule);
+	bool Scheduled = schedulePipeline(Schedule);
 }
 
 //create the adjacency structure of the nodes in the graph
