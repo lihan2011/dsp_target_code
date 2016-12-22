@@ -53,6 +53,9 @@ using namespace llvm;
 
 #define DEBUG_TYPE "packets"
 
+cl::opt<bool> DisablePacketizer("nopack",
+	cl::Hidden, cl::init(false), cl::desc("Disable Packetizer for DSP target"));
+
 static cl::opt<bool> PacketizeVolatiles("dsp-packetize-volatiles",
 	cl::ZeroOrMore, cl::Hidden, cl::init(true),
 	cl::desc("Allow non-solo packetization of volatile memory references"));
@@ -528,7 +531,8 @@ namespace {
 			else {
 				MachineBasicBlock::iterator MII = MI;
 				++MII;
-				if (MII->getOpcode() == DSP::Ret || MII->getOpcode() == DSP::RetLR || MII->getOpcode()==DSP::NOP 
+				if (MII->getOpcode() == DSP::Ret || MII->getOpcode() == DSP::RetLR 
+					|| MII->getOpcode()==DSP::NOP || MI->getOpcode() == DSP::NOP
 					|| MII->getOpcode() == DSP::NOP_S || MI->getOpcode() == DSP::NOP_S
 					|| MI->getOpcode() == DSP::ENDLOOP|| MII->getOpcode() == DSP::ENDLOOP){
 					endPacket(MBB, MI);
