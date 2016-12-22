@@ -87,12 +87,14 @@ bool DSPFixupHwLoops::runOnMachineFunction(MachineFunction &MF) {
 	TII = static_cast<const DSPInstrInfo*>(TM->getInstrInfo());
 	
 	if(DSPDEBUG)
-		DEBUG({ dbgs() << "HWLoops  Fixup: \n";   MF.print(dbgs()); });
+		DEBUG({ dbgs() << "\n** Before HWLoops  Fixup ** \n"; 
+				MF.print(dbgs()); });
 
 	bool Changed = fixupLoopInstrs(MF);
 	
 	if (DSPDEBUG && Changed)
-		DEBUG({ dbgs() << "HWLoops  Fixup: \n";   MF.print(dbgs()); });
+		DEBUG({ dbgs() << "\n** After HWLoops  Fixup ** \n";   
+				MF.print(dbgs()); });
 	
 	return Changed;
 }

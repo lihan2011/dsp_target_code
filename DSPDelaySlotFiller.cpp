@@ -29,12 +29,17 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Support/Debug.h"
+//#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/CommandLine.h"
 #include <iostream>
 using namespace llvm;
 
 #define DEBUG_TYPE "delay-slot-filler"
 
 STATISTIC(FilledSlots, "Number of delay slots filled");
+
+extern cl::opt<bool> DisablePacketizer;
 
 namespace {
   typedef MachineBasicBlock::iterator Iter;
@@ -54,6 +59,8 @@ namespace {
       for (MachineFunction::iterator FI = F.begin(), FE = F.end();
            FI != FE; ++FI)
         Changed |= runOnMachineBasicBlock(*FI);
+
+	  //DEBUG({ dbgs() << "**DelaySlot  result**\n";   F.print(dbgs()); });
       return Changed;
     }
   private:
@@ -112,28 +119,41 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 		const DSPInstrInfo *TII = static_cast<const DSPInstrInfo*>(TM.getInstrInfo());
 		// Insert nop if the next MI refers to the def of LD
 		Iter next = std::next(I);
+
 		if (I->getOpcode() == DSP::LD 
 			&& next != MBB.end()) {
 			unsigned reg = I->getOperand(0).getReg();
 
-			if(!isUseOutputReg(next, reg) || next->isCompare())
+			if(!isUseOutputReg(next, reg) 
+				|| next->isCompare()
+				)
 				continue;
 		}
+
 		// Bundle the NOP to the instruction with the delay slot.
-		Iter NI = std::next(I);
-		int NopNum = 3;
-		//In case of the last nop is bundled with follow instr.
-		if (NI == MBB.end() || NI->isTerminator() 
-			//|| (NI->isCompare() && I->getOpcode() != DSP::LD)
-			|| I->isCall() )
-			NopNum = 2;
-		for (int i = 0; i < NopNum; i++)
+		// Scalar version just insert 2 nop
+		for (int i = 0; i < 2; i++)
 		{
 			BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
 		}
-		//MIBundleBuilder(MBB, I, std::next(I, NopNum));
-		//BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
-		//BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP_S));
+		if (!DisablePacketizer) {
+			//Bundle next nop 1
+			MIBundleBuilder(MBB, std::next(I), std::next(I, 3));
+			//Bundle next nop 2
+			for (int i = 0; i < 2; i++)
+			{
+				BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+			}
+			MIBundleBuilder(MBB, std::next(I), std::next(I, 3));
+			//Make sure I seperate from next inserted nop
+			BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+			MIBundleBuilder(MBB, I, std::next(I, 2));
+			//Make sure next I separate from previous inserted nop
+			if (next != MBB.end() && !next->hasDelaySlot()) {
+				BuildMI(MBB, std::next(next), I->getDebugLoc(), TII->get(DSP::NOP));
+				MIBundleBuilder(MBB, next, std::next(next, 2));
+			}
+		}
 
 	}
 

@@ -379,7 +379,7 @@ bool DSPHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
   }
 
   if (DSPDEBUG && Changed)
-	DEBUG({ dbgs() << "HWLoops  result: \n";   MF.print(dbgs()); });
+	DEBUG({ dbgs() << "\n** HWLoops  result **\n";   MF.print(dbgs()); });
 
   return Changed;
 }
