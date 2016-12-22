@@ -28,9 +28,8 @@ extern "C" void LLVMInitializeDSPTarget() {
 }
 
 extern cl::opt<bool> EnableSwPipeline;
-
-static cl::opt<bool> DisableHardwareLoops("disable-dsp-hwloops",
-	cl::Hidden, cl::desc("Disable Hardware Loops for DSP target"));
+extern cl::opt<bool> DisableHardwareLoops;
+extern cl::opt<bool> DisablePacketizer;
 
 // DataLayout --> Big-endian, 32-bit pointer/ABI/alignment
 // The stack is always 8 byte aligned
@@ -123,8 +122,11 @@ bool DSPPassConfig::addPreEmitPass() {
 
 	addPass(createDSPDelaySlotFillerPass(TM));
 	//fixup hwloop
-	addPass(createDSPPacketizer());
+	if(!DisablePacketizer)
+		addPass(createDSPPacketizer());
 	addPass(createDSPVLIWBundlerDrive(TM));
+	if (!DisableHardwareLoops)
+		addPass(createDSPFixupHwLoops());
 
 	return true;
 }

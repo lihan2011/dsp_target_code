@@ -49,6 +49,7 @@ FunctionPass *createDSPVLIWBundlerDrive(TargetMachine &TM);
 FunctionPass *createDSPPacketizer();
 FunctionPass *createDSPDelaySlotFillerPass(DSPTargetMachine &TM);
 FunctionPass *createDSPDelJmpPass(DSPTargetMachine &TM);
+FunctionPass *createDSPFixupHwLoops();
 
 
 } // end namespace llvm;

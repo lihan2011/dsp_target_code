@@ -38,6 +38,7 @@ add_llvm_target(DSPCodeGen
 	DSPDelUselessJMP.cpp
 	DSPMachineScheduler.cpp
 	DSPHardwareLoops.cpp
+	DSPFixupHwLoops.cpp
   )
 
 
