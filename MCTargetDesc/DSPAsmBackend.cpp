@@ -71,15 +71,58 @@ static unsigned adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
 			Ctx->FatalError(Fixup.getLoc(), "out of range pc 21");
 		break;*/
 	case DSP::fixup_DSP_PC26:
-		//for jmp jnc
+		//for jmp jnc jc
 		Value -= 4;
 		Value = (int64_t)Value / 4;
-		if (isIntN(26, Value) && Ctx)
-			Ctx->FatalError(Fixup.getLoc(), "out of range pc 26");
+		if (isIntN(21, Value) && Ctx)
+			Ctx->FatalError(Fixup.getLoc(), "out of range pc 21");
+		break;
+	case DSP::fixup_DSP_PC16:
+		//for loop
+		Value -= 4;
+		Value = (int64_t)Value / 4;
+		if (isIntN(16, Value) && Ctx)
+			Ctx->FatalError(Fixup.getLoc(), "out of range pc 16");
 		break;
 	}
 	
 	return Value;
+}
+
+/// The bits of left shift depends on funct bits in the 
+/// end of instruction encode.
+static unsigned getShift(MCFixupKind Kind) {
+	unsigned Functbits = 0;
+
+	switch ((unsigned)Kind) {
+	default:
+		return 0;
+	case DSP::fixup_DSP_PC26:
+		//for jmp jnc jc
+		Functbits = 5;
+		break;
+	case DSP::fixup_DSP_PC16:
+		//for loop
+		Functbits = 4;
+		break;
+	}
+
+	return Functbits;
+}
+
+static unsigned getAddend(MCFixupKind Kind) {
+	unsigned Off = 0;
+
+	switch ((unsigned)Kind) {
+	default:
+		return 0;
+	case DSP::fixup_DSP_PC16:
+		//for loop
+		Off = 2;
+		break;
+	}
+
+	return Off;
 }
 
 MCObjectWriter *DSPAsmBackend::createObjectWriter(raw_ostream &OS) const {
@@ -99,10 +142,13 @@ void DSPAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 	
 	// Doesn¡¯t change encoding.
 	// Where do we start in the object
+	// \!!Due to the offset in fixup (funct bits) of DSP is not regularly
+	// aligned to BYTE, so we obselete this ways, fetching rear part of 
+	// instruction including the funct filed but not modify it.
 	unsigned Offset = Fixup.getOffset();
 	
 
-	// Number of bytes we need to fixup
+	// Number of bytes we need to fixup, getting ceiling. 
 	unsigned NumBytes = (getFixupKindInfo(Kind).TargetSize + 7) / 8;
 	// Used to point to big endian bytes
 	unsigned FullSize;
@@ -116,16 +162,23 @@ void DSPAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 	for (unsigned i = 0; i != NumBytes; ++i) {
 		unsigned Idx = IsLittle ? i : (FullSize - 1 - i);
 		CurVal |= (uint64_t)((uint8_t)Data[Offset + Idx]) << (i * 8);
+		//std::cout << "CurVal fetched from Data[]: " << CurVal << std::endl;
 	}
-
+	std::cout << "CurVal  before fixup (instr last " 
+		<< NumBytes << " bytes) :" << CurVal << std::endl;
 
 	uint64_t Mask = ((uint64_t)(-1) >> (64 - getFixupKindInfo(Kind).TargetSize));
-	Value = Value << 5;
-	//std::cout << CurVal << std::endl;
-	//std::cout << Value << std::endl;
-	//std::cout << "mask" << Mask << std::endl;
+	uint64_t Shift = getShift(Kind);
+	uint64_t Addend = getAddend(Kind);
+	std::cout << "fix address Value : " << Value << std::endl;
+	//std::cout << "Shift (funct filed bits): " << Shift << std::endl;
+	//std::cout << "Mask : " << Mask << std::endl;
+	//Value += Addend;
+	Value = Value << Shift;
+	//std::cout << "Value << Shift " << Value << std::endl;
 	CurVal |= Value & Mask;
-	//std::cout << CurVal << std::endl;
+	std::cout << "CurVal after fixup: \t" << CurVal << std::endl;
+
 	// Write out the fixed up bytes back to the code/data bits.
 	for (unsigned i = 0; i != NumBytes; ++i) {
 		unsigned Idx = IsLittle ? i : (FullSize - 1 - i);
@@ -153,11 +206,12 @@ getFixupKindInfo(MCFixupKind Kind) const {
 
 		//add this  not appear in relocation table?
 		{"fixup_DSP_PC21_S2", 0, 21, MCFixupKindInfo::FKF_IsPCRel },
-		{"fixup_DSP_PC26_S2", 0, 26, 0 },
+		{"fixup_DSP_PC26_S2", 0, 26, MCFixupKindInfo::FKF_IsPCRel },
 
 
 		//{ "fixup_DSP_PC24", 0, 24, MCFixupKindInfo::FKF_IsPCRel },
 		{ "fixup_DSP_PC26", 0, 26, MCFixupKindInfo::FKF_IsPCRel },
+		{ "fixup_DSP_PC16", 0, 20, MCFixupKindInfo::FKF_IsPCRel },
 	};
 	if (Kind < FirstTargetFixupKind)
 		return MCAsmBackend::getFixupKindInfo(Kind);
