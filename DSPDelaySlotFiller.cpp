@@ -80,32 +80,63 @@ static bool isReturn(const MachineInstr *MI){
 static bool isVLIW(const MachineInstr *MI){
 	return false;
 }
+
+/// If instruction \p I use the reigster of \p Reg
+static bool isUseOutputReg(MachineInstr *I, unsigned Reg) {
+	//bool isPhys = TargetRegisterInfo::isPhysicalRegister(Reg);
+	bool Found = false;
+	for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i) {
+		const MachineOperand &MO = I->getOperand(i);
+		if (!MO.isReg() || !MO.isUse())
+			continue;
+		unsigned MOReg = MO.getReg();
+		if (MOReg == Reg)
+			Found = true;
+	}
+	return Found;
+}
+
 /// runOnMachineBasicBlock - Fill in delay slots for the given basic block.
 /// We assume there is only one delay slot per delayed instruction.
 bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
-  bool Changed = false;
+	bool Changed = false;
+	
+	for (Iter I = MBB.begin(); I != MBB.end(); ++I) {
+		if (!hasUnoccupiedSlot(&*I))
+			continue;
 
-  for (Iter I = MBB.begin(); I != MBB.end(); ++I) {
-    if (!hasUnoccupiedSlot(&*I))
-      continue;
+		++FilledSlots;
+		Changed = true;
+		const DSPInstrInfo *TII = static_cast<const DSPInstrInfo*>(TM.getInstrInfo());
+		// Insert nop if the next MI refers to the def of LD
+		Iter next = std::next(I);
+		if (I->getOpcode() == DSP::LD 
+			&& next != MBB.end()) {
+			unsigned reg = I->getOperand(0).getReg();
 
-    ++FilledSlots;
-    Changed = true;
-    // Bundle the NOP to the instruction with the delay slot.
-    const DSPInstrInfo *TII = static_cast<const DSPInstrInfo*>(TM.getInstrInfo());
-	for (int i = 0; i < 2; i++)
-	{
-		BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+			if(!isUseOutputReg(next, reg) || next->isCompare())
+				continue;
+		}
+		// Bundle the NOP to the instruction with the delay slot.
+		Iter NI = std::next(I);
+		int NopNum = 3;
+		//In case of the last nop is bundled with follow instr.
+		if (NI == MBB.end() || NI->isTerminator() 
+			//|| (NI->isCompare() && I->getOpcode() != DSP::LD)
+			|| I->isCall() )
+			NopNum = 2;
+		for (int i = 0; i < NopNum; i++)
+		{
+			BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+		}
+		//MIBundleBuilder(MBB, I, std::next(I, NopNum));
+		//BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+		//BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP_S));
+
 	}
-	MIBundleBuilder(MBB, I, std::next(I, 2));
-	BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
-	//BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP_S));
 
-  }
-
-  return Changed;
+	return Changed;
 }
-
 /// createDSPDelaySlotFillerPass - Returns a pass that fills in delay
 /// slots in DSP MachineFunctions
 FunctionPass *llvm::createDSPDelaySlotFillerPass(DSPTargetMachine &tm) {
