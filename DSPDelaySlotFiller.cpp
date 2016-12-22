@@ -81,15 +81,17 @@ static bool isVLIW(const MachineInstr *MI){
 	return false;
 }
 
-/// If instruction \p I use the reigster of \p Reg
-static bool isUseOutputReg(MachineInstr *I, unsigned Reg) {
-	//bool isPhys = TargetRegisterInfo::isPhysicalRegister(Reg);
+
+//read the ld output reg
+static bool isUseOutputReg(MachineInstr *I, unsigned Reg){
+	bool isPhys = TargetRegisterInfo::isPhysicalRegister(Reg);
 	bool Found = false;
 	for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i) {
 		const MachineOperand &MO = I->getOperand(i);
 		if (!MO.isReg() || !MO.isUse())
 			continue;
 		unsigned MOReg = MO.getReg();
+
 		if (MOReg == Reg)
 			Found = true;
 	}
