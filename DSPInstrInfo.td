@@ -384,7 +384,7 @@ let hasDelaySlot = 1;
 
 //Loop base
 class LoopBase<bits<3> typeop, bits<3> op, bits<4> inner_op, string instr_asm>:
-F_1Reg_imm16<typeop,op,inner_op, (outs), (ins GPROut:$ra, brtarget:$imm16),
+F_1Reg_imm16<typeop,op,inner_op, (outs), (ins CPURegs:$ra, brtarget:$imm16),
 !strconcat(instr_asm, "\t $ra, $imm16"), [], ControlFlow_SLOT0> {
 let Inst{3-0} = inner_op;
 let hasDelaySlot = 1;
@@ -521,10 +521,10 @@ def MovV2G40 : VMovBase<4,6,0b0000010111,"movv2g40",extractelt,GPROut,VPR4Out,AL
 //def MovV2G20 : VMovBase<4,6,0b0000011011,"movv2g20",extractelt,GPROut,CPU128Regs,ALU32_V_SLOT01>;
 def MovV2G10 : VMovBase<4,6,0b0000011111,"movv2g10",vector_extract,GPROut,VPR16Out,ALU32_V_SLOT01>;
 
-def MovIGH : SMovBase<7,5,0b0001,"movigh",CPURegs,Data_Transmission_2_SLOT0123>;
+def MovIGH : SMovBase<4,5,0b0001,"movigh",CPURegs,Data_Transmission_2_SLOT0123>;
 
 let Constraints = "$ra = $rb" in 
-def MovIGL : SMovBase<7,5,0b0101,"movigl",CPURegs,Data_Transmission_2_SLOT0123>;
+def MovIGL : SMovBase<4,5,0b0101,"movigl",CPURegs,Data_Transmission_2_SLOT0123>;
 
 
 def VMovG2V40 : RMovBase<4,4,0b10100101,"vmovrg2v40",VPR4Out,GPROut,ALU32_V_SLOT01>;
@@ -536,42 +536,44 @@ def MovG2G : RMovBase<4,4,0b10000000,"movg2g",GPROut,GPROut,ALU32_S_SLOT01>;
 //**********************************************A&L instruction**************************************//
 
 
-def ADDiu :ArithLogicI<0x7,0x6,0b000,"addi",add,simm11,immSExt11, CPURegs>;
+def ADDiu :ArithLogicI<0x4,0x6,0b000,"addi",add,simm11,immSExt11, CPURegs>;
 
-def ADDu : ArithLogicR<7,1,0b00000000, "add", add, ALU32_S_SLOT01, CPURegs, 1>;
-def SUBu : ArithLogicR<7,1,0b00000010, "sub", sub, ALU32_S_SLOT01, CPURegs, 1>;
-def MUL : ArithLogicR<7,1,0b00001100,"mul32", mul, ALU32_S_SLOT01,CPURegs,1>;
-def ORu :ArithLogicR<7,1,0b00000101,"or",or,ALU32_S_SLOT01,CPURegs,1>;
+def ADDu : ArithLogicR<4,1,0b00000000, "add", add, ALU32_S_SLOT01, CPURegs, 1>;
+def SUBu : ArithLogicR<4,1,0b00000010, "sub", sub, ALU32_S_SLOT01, CPURegs, 1>;
+def MUL : ArithLogicR<4,1,0b00001100,"mul32", mul, ALU32_S_SLOT01,CPURegs,1>;
+def ORu :ArithLogicR<4,1,0b00000101,"or",or,ALU32_S_SLOT01,CPURegs,1>;
 //def SHL : shift_rotate_imm32<0,1,0b00001001, 0x00, "sl", shl>;
 
-def SHL : shift_rotate_reg<7,1,0b00001001, 0x00, "sl", shl,CPURegs>;
-def SRA : shift_rotate_reg<7,1,0b00001010, 0x00, "sra", sra,CPURegs>;
-def SRL : shift_rotate_reg<7,1,0b00001011,0x00,"srl",srl,CPURegs>;
-def AND : ArithLogicR<0x7,0x1,0b00000100,"and", and, ALU32_S_SLOT01,CPURegs,1>;
-def XORu : ArithLogicR<7,1,0b00000110, "xor", xor, ALU32_S_SLOT01, CPURegs,1>;
+//let hasDelaySlot=1 in {
+def SHL : shift_rotate_reg<4,1,0b00001001, 0x00, "sl", shl,CPURegs>;
+def SRA : shift_rotate_reg<4,1,0b00001010, 0x00, "sra", sra,CPURegs>;
+def SRL : shift_rotate_reg<4,1,0b00001011,0x00,"srl",srl,CPURegs>;
+//}
+def AND : ArithLogicR<0x4,0x1,0b00000100,"and", and, ALU32_S_SLOT01,CPURegs,1>;
+def XORu : ArithLogicR<4,1,0b00000110, "xor", xor, ALU32_S_SLOT01, CPURegs,1>;
 
 //let isCompare = 1 in {
-def EQ   :SetCC_R<7,4,0b00000000,"eq",seteq,CPURegs>;
-def NEQ   :SetCC_R<7,4,0b00000001,"neq",setne,CPURegs>;
-def GT   :SetCC_R<7,4,0b00000010,"gt",setgt,CPURegs>;
-def GTU   :SetCC_R<7,4,0b00001010,"gtu",setugt,CPURegs>;
-def GE   :SetCC_R<7,4,0b00000100,"ge",setge,CPURegs>;
-def GEU   :SetCC_R<7,4,0b00001100,"geu",setuge,CPURegs>;
-def LT   :SetCC_R<7,4,0b00000011,"lt",setlt,CPURegs>;
-def LTU   :SetCC_R<7,4,0b00001011,"ltu",setult,CPURegs>;
-def LE   :SetCC_R<7,4,0b00000101,"le",setle,CPURegs>;
-def LEU   :SetCC_R<7,4,0b00001101,"leu",setule,CPURegs>;
+def EQ   :SetCC_R<4,4,0b00000000,"eq",seteq,CPURegs>;
+def NEQ   :SetCC_R<4,4,0b00000001,"neq",setne,CPURegs>;
+def GT   :SetCC_R<4,4,0b00000010,"gt",setgt,CPURegs>;
+def GTU   :SetCC_R<4,4,0b00001010,"gtu",setugt,CPURegs>;
+def GE   :SetCC_R<4,4,0b00000100,"ge",setge,CPURegs>;
+def GEU   :SetCC_R<4,4,0b00001100,"geu",setuge,CPURegs>;
+def LT   :SetCC_R<4,4,0b00000011,"lt",setlt,CPURegs>;
+def LTU   :SetCC_R<4,4,0b00001011,"ltu",setult,CPURegs>;
+def LE   :SetCC_R<4,4,0b00000101,"le",setle,CPURegs>;
+def LEU   :SetCC_R<4,4,0b00001101,"leu",setule,CPURegs>;
 
-def EQI	:SetCC_RI<7,5,0b00010,"lti",seteq,CPURegs>;
-def NEQI:SetCC_RI<7,5,0b00110,"lti",setne,CPURegs>;
-def GTI :SetCC_RI<7,5,0b01010,"gti",setgt,CPURegs>;
-def LTI :SetCC_RI<7,5,0b01110,"lti",setlt,CPURegs>;
-def GEI :SetCC_RI<7,5,0b10010,"gei",setge,CPURegs>;
-def LEI	:SetCC_RI<7,5,0b10110,"lei",setle,CPURegs>;
+def EQI	:SetCC_RI<4,5,0b00010,"lti",seteq,CPURegs>;
+def NEQI:SetCC_RI<4,5,0b00110,"lti",setne,CPURegs>;
+def GTI :SetCC_RI<4,5,0b01010,"gti",setgt,CPURegs>;
+def LTI :SetCC_RI<4,5,0b01110,"lti",setlt,CPURegs>;
+def GEI :SetCC_RI<4,5,0b10010,"gei",setge,CPURegs>;
+def LEI	:SetCC_RI<4,5,0b10110,"lei",setle,CPURegs>;
 //}
 
-def MAX  :MMBase<7,1,0b00000111,"max",DSPMAX,ALU32_S_SLOT01,GPROut>;
-def MIN  :MMBase<7,1,0b00001000,"min",DSPMIN,ALU32_S_SLOT01,GPROut>;
+def MAX  :MMBase<4,1,0b00000111,"max",DSPMAX,ALU32_S_SLOT01,GPROut>;
+def MIN  :MMBase<4,1,0b00001000,"min",DSPMIN,ALU32_S_SLOT01,GPROut>;
 
 //***************************************************************************************************//
 
@@ -580,25 +582,27 @@ def MIN  :MMBase<7,1,0b00001000,"min",DSPMIN,ALU32_S_SLOT01,GPROut>;
 
 //**************************************memory instruction*******************************************//
 /// Load and Store Instructions
-defm LD : LoadM32<defaultOp.Value,2,0b00010, "load32", load_a>;
-defm ST : StoreM32<7,3,0b10010, "store32", store_a>;
+let hasDelaySlot = 1 in{
+defm LD : LoadM32<6,2,0b00010, "load32", load_a>;
+}
+defm ST : StoreM32<6,3,0b00010, "store32", store_a>;
 def LUi : LoadUpper<0,2,0b00011, "lui", GPROut, uimm16>;
 def LU : DSPPseudo<(outs CPURegs:$ra), (ins uimm16:$in), "", []>;
 
-def VSTORE32 : StoreM128<7,3,0b10101,"vstore40",store_a>;
+def VSTORE32 : StoreM128<6,3,0b10101,"vstore40",store_a>;
 
 let hasDelaySlot = 1 in 
-def VLOAD32 : LoadM128<7,2,0b10001,"vload32",load_a>;
+def VLOAD32 : LoadM128<6,2,0b10001,"vload32",load_a>;
 
-def VSTORE16 : StoreM128_16<7,3,0b10110,"vstore20",store_a>;
-
-let hasDelaySlot = 1 in
-def VLOAD16 : LoadM128_16<7,2,0b10010,"vload16",load_a>;
-
-def VSTORE8 : StoreM128_8<7,3,0b10111,"vstore10",store_a>;
+def VSTORE16 : StoreM128_16<6,3,0b10110,"vstore20",store_a>;
 
 let hasDelaySlot = 1 in
-def VLOAD8 : LoadM128_8<7,2,0b10011,"vload8",load_a>;
+def VLOAD16 : LoadM128_16<6,2,0b10010,"vload16",load_a>;
+
+def VSTORE8 : StoreM128_8<6,3,0b10111,"vstore10",store_a>;
+
+let hasDelaySlot = 1 in
+def VLOAD8 : LoadM128_8<6,2,0b10011,"vload8",load_a>;
 
 //***************************************************************************************************//
 
