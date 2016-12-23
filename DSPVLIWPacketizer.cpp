@@ -248,9 +248,8 @@ namespace {
 				}
 
 				if ((SUI->getInstr()->getOpcode() == DSP::RetLR) || (SUJ->getInstr()->getOpcode() == DSP::RetLR) ||
-					(SUI->getInstr()->getOpcode() == DSP::Jmp) || (SUJ->getInstr()->getOpcode() == DSP::Jmp) ||
-					(SUI->getInstr()->getOpcode() == DSP::NOP) || (SUJ->getInstr()->getOpcode() == DSP::NOP) ||
 					(SUI->getInstr()->getOpcode() == DSP::Ret) || (SUJ->getInstr()->getOpcode() == DSP::Ret) ||
+					(SUI->getInstr()->getOpcode() == DSP::Jmp) || (SUJ->getInstr()->getOpcode() == DSP::Jmp) ||
 					(SUI->getInstr()->getOpcode() == DSP::JC) || (SUJ->getInstr()->getOpcode() == DSP::JC)
 					){
 					FoundSequentialDependence = true;
@@ -306,11 +305,11 @@ namespace {
 					FoundSequentialDependence = true;
 					break;
 				}
-				else if (DepType == SDep::Data) {
+				else if (DepType != SDep::Anti) {
 					FoundSequentialDependence = true;
 					break;
 				}
-				else if (DepType == SDep::Anti){
+				/*else if (DepType == SDep::Anti){
 					unsigned DepReg = SUJ->Succs[i].getReg();
 					if (I->definesRegister(DepReg) ||
 						J->definesRegister(DepReg)) {
@@ -318,7 +317,7 @@ namespace {
 						break;
 
 					}
-				}
+				}*/
 			}
 			if (FoundSequentialDependence) {
 				Dependence = true;
@@ -531,16 +530,16 @@ namespace {
 				CurrentPacketMIs.push_back(nvjMI);
 			}
 			else {
-				/*MachineBasicBlock::iterator MII = MI;
+				MachineBasicBlock::iterator MII = MI;
 				++MII;
 				if (MII->getOpcode() == DSP::Ret || MII->getOpcode() == DSP::RetLR 
-					|| MII->getOpcode()==DSP::NOP || MI->getOpcode() == DSP::NOP
+					//|| MII->getOpcode()==DSP::NOP || MI->getOpcode() == DSP::NOP
 					|| MII->getOpcode() == DSP::NOP_S || MI->getOpcode() == DSP::NOP_S
 					|| MI->getOpcode() == DSP::ENDLOOP|| MII->getOpcode() == DSP::ENDLOOP){
 					endPacket(MBB, MI);
 				}
 				else 
-					judgeSlots(MBB, MI);*/
+					judgeSlots(MBB, MI);
 				ResourceTracker->reserveResources(MI);
 				CurrentPacketMIs.push_back(MI);
 			}

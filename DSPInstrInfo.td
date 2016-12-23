@@ -488,7 +488,7 @@ def NOP_S : F_Special_0Reg<6,0,0, (outs), (ins), "nops", [],NOP_SLOT0123>;
 
 let isReturn=1, isTerminator=1, hasDelaySlot=1, isBarrier=1, hasCtrlDep=1 in
 def RetLR : DSPPseudo<(outs), (ins), "", [(DSPRet)]>;
-let isReturn=1 in
+let isReturn=1 ,isTerminator=1, isBarrier=1 in
 def Ret : RetBase<GPROut>;
 def Jmp : UncondBranch<4,0,0b000001,"jmp">;
 def JNC : CBranch<4,0,0b01001, "jnc">;

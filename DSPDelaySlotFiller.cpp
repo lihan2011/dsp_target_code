@@ -60,7 +60,7 @@ namespace {
            FI != FE; ++FI)
         Changed |= runOnMachineBasicBlock(*FI);
 
-	  //DEBUG({ dbgs() << "**DelaySlot  result**\n";   F.print(dbgs()); });
+	  DEBUG({ dbgs() << "**DelaySlot  result**\n";   F.print(dbgs()); });
       return Changed;
     }
   private:

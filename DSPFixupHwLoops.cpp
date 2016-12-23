@@ -238,10 +238,12 @@ MachineBasicBlock *DSPFixupHwLoops::splitLatchBlock(
 				"No bundle above endloop instruction in latch");
 			if (DSPDEBUG)
 				std::cout << "Got bundle above endloop" << std::endl;
-			MachineBasicBlock::iterator EndLoopBI = &*BI;
-			SplitPos = EndLoopBI;
+			MachineBasicBlock::iterator PreEndLoopBundle = &*BI;
+			SplitPos = PreEndLoopBundle;
 			//Erase the endloop pseudo instruction
-			Latch->erase(std::next(EndLoopBI));
+			//Latch->erase(std::next(PreEndLoopBundle));
+			MachineInstr * EndLoopI = &*MII;
+			Latch->remove_instr(EndLoopI);
 			break;
 		}
 	}
