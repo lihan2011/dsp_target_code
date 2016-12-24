@@ -72,9 +72,14 @@ const MCSubtargetInfo &STI) const
 {
 	//std::cout <<std::hex << getBinaryCodeForInstr(MI, Fixups, STI);
 	uint32_t Binary = getBinaryCodeForInstr(MI, Fixups, STI);
+
 	//std::cout <<"binary£¡£¡"<< std::hex <<Binary << std::endl;
 	// Check for unimplemented opcodes.
 	unsigned Opcode = MI.getOpcode();
+	if (Opcode == DSP::ST)
+	{
+		std::cout << " ST binary£¡£¡" << std::hex << Binary << std::endl;
+	}
 	DSPMCInst *MCI = (DSPMCInst*)(&MI);
 	DSPVLIWBundler::getBundler()->PerformBundle(MCI,&Binary);
 	//std::cout << "binary£¡£¡" << std::hex << Binary << std::endl;
@@ -248,6 +253,9 @@ SmallVectorImpl<MCFixup> &Fixups,
 const MCSubtargetInfo &STI) const {
 	// Base register is encoded in bits 19-14, offset is encoded in bits 13-5.
 	assert(MI.getOperand(OpNo).isReg());
+	std::cout << std::hex << getMachineOpValue(MI, MI.getOperand(OpNo), Fixups, STI) << std::endl;
+	std::cout << std::hex << getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups, STI) << std::endl;
+
 	unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups, STI)<<9;
 	unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo + 1), Fixups, STI)>>2;
 	return (OffBits & 0xFFFF) | RegBits;

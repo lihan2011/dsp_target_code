@@ -1709,6 +1709,8 @@ bool SMSchedule::isLoopCarriedDefOfUse(SwingSchedulerDAG *SSD,
 	if (Def->isPHI())
 		return false;
 	MachineInstr *Phi = MRI.getVRegDef(MO.getReg());
+	if (!Phi->getDesc().getNumOperands()) return false;
+
 	if (!Phi || !Phi->isPHI() || Phi->getParent() != Def->getParent())
 		return false;
 	if (!isLoopCarried(SSD, Phi))
