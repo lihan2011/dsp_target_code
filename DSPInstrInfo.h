@@ -100,10 +100,14 @@ namespace llvm{
 
 		bool analyzeCompare(const MachineInstr * MI, unsigned & SrcReg, unsigned & SrcReg2, int & Mask, int & Value) const;
 
-		bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB, MachineBasicBlock *&FBB,
-			SmallVectorImpl<MachineOperand> &Cond,
-			bool AllowModify,
-			bool isLoop) const;
+		/// For instructions with a base and offset, return the position of the
+		/// If the instruction is an increment of a constant value, return the amount.
+		bool getIncrementValue(const MachineInstr *MI, int &Value) const override;
+
+		bool getBaseAndOffset(const MachineInstr *MI,
+			int &BasePos,
+			unsigned int OffsetPos) const override;
+
 		//unsigned CaculateNumOfMemInst(MachineLoop *L);
 		//unsigned CaculateNumOfAluInst(MachineLoop *L);
 	};

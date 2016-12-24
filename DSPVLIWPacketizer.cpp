@@ -198,6 +198,10 @@ namespace {
 		return (MI->getDesc().isTerminator() || MI->getDesc().isCall());
 	}
 
+	static bool IsNop(MachineInstr *MI){
+		return (MI->getOpcode()==DSP::NOP);
+	}
+
 	//isLegalToPacketizeTogether:
 	// SUI is the current instruction that is out side of the current packet.
 	// SUJ is the current instruction inside the current packet against which that
@@ -225,6 +229,12 @@ namespace {
 
 		// Two control flow instructions cannot go in the same packet.
 		if (IsControlFlow(I) && IsControlFlow(J)) {
+			Dependence = true;
+			return false;
+		}
+
+		if (IsNop(I) || IsNop(J))
+		{
 			Dependence = true;
 			return false;
 		}
@@ -360,6 +370,9 @@ namespace {
 			return true;
 
 		if (MI->isEHLabel())
+			return true;
+
+		if (MI->isReturn())
 			return true;
 		return false;
 	}
