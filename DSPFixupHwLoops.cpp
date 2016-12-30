@@ -156,6 +156,32 @@ bool DSPFixupHwLoops::fixupLoopInstrs(MachineFunction &MF) {
 	return Changed;
 }
 
+/// ReplaceUsesOfBlockWith - Given a machine basic block that branched to
+/// 'Old', change the code and CFG so that it branches to 'New' instead.
+/// Skip delay slot nop.
+static void ReplaceUsesOfBlockWith(MachineBasicBlock *Old, MachineBasicBlock *New,
+	MachineBasicBlock *Use) {
+	assert(Old != New && "Cannot replace self with self!");
+
+	MachineBasicBlock::instr_iterator I = Use->instr_end();
+	while (I != Use->instr_begin()) {
+		--I;
+		if (I->getOpcode() == DSP::NOP)
+			continue;
+		if (!I->isTerminator()) break;
+
+		// Scan the operands of this machine instruction, replacing any uses of Old
+		// with New.
+		for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
+			if (I->getOperand(i).isMBB() &&
+				I->getOperand(i).getMBB() == Old)
+				I->getOperand(i).setMBB(New);
+	}
+
+	// Update the successor information.
+	Use->replaceSuccessor(Old, New);
+}
+
 /// \brief Create a preheader for a given loop.
 /// It is not valid to replace the loop header with this method.
 MachineBasicBlock *DSPFixupHwLoops::splitLatchBlock(
@@ -293,7 +319,7 @@ MachineBasicBlock *DSPFixupHwLoops::splitLatchBlock(
 			////2) Condition branch and fall through: TB != Latch, FB = nullptr
 			//if (TB != Latch && (!FB))
 			//	TII->InsertBranch(*PB, PreLatch, nullptr, EmptyCond, DL);
-			PB->ReplaceUsesOfBlockWith(Latch, PreLatch);
+			ReplaceUsesOfBlockWith(Latch, PreLatch, PB);
 		}
 	}
 
