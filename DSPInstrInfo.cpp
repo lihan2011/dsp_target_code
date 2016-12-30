@@ -326,16 +326,17 @@ bool DSPInstrInfo::getBaseAndOffset(const MachineInstr *MI, int &Value, unsigned
 	return false;
 }
 /// If the instruction is an increment of a constant value, return the amount.
-//bool DSPInstrInfo::getIncrementValue(const MachineInstr *MI,
-//	int &Value) const {
-//	if (isPostIncrement(MI)) {
-//		unsigned AccessSize;
-//		return getBaseAndOffset(MI, Value, AccessSize);
-//	}
-//	if (MI->getOpcode() == DSP::ADDiu) {
-	//	Value = MI->getOperand(2).getImm();
-	//	return true;
-	//}
+bool DSPInstrInfo::getIncrementValue(const MachineInstr *MI,
+	int &Value) const {
+	if (isPostIncrement(MI)) {
+		unsigned AccessSize;
+		return getBaseAndOffset(MI, Value, AccessSize);
+	}
+	if (MI->getOpcode() == DSP::ADDiu) {
+		Value = MI->getOperand(2).getImm();
+		return true;
+	}
+}
 
 /// \brief For a comparison instruction, return the source registers in
 /// \p SrcReg and \p SrcReg2 if having two register operands, and the value it

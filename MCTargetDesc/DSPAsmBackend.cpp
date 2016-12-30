@@ -110,21 +110,6 @@ static unsigned getShift(MCFixupKind Kind) {
 	return Functbits;
 }
 
-static unsigned getAddend(MCFixupKind Kind) {
-	unsigned Off = 0;
-
-	switch ((unsigned)Kind) {
-	default:
-		return 0;
-	case DSP::fixup_DSP_PC16:
-		//for loop
-		Off = 2;
-		break;
-	}
-
-	return Off;
-}
-
 MCObjectWriter *DSPAsmBackend::createObjectWriter(raw_ostream &OS) const {
 	return createDSPELFObjectWriter(OS,MCELFObjectTargetWriter::getOSABI(OSType), IsLittle);
 }
@@ -169,11 +154,9 @@ void DSPAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 
 	uint64_t Mask = ((uint64_t)(-1) >> (64 - getFixupKindInfo(Kind).TargetSize));
 	uint64_t Shift = getShift(Kind);
-	uint64_t Addend = getAddend(Kind);
 	std::cout << "fix address Value : " << Value << std::endl;
 	//std::cout << "Shift (funct filed bits): " << Shift << std::endl;
 	//std::cout << "Mask : " << Mask << std::endl;
-	//Value += Addend;
 	Value = Value << Shift;
 	//std::cout << "Value << Shift " << Value << std::endl;
 	CurVal |= Value & Mask;
