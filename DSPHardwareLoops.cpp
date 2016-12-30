@@ -936,13 +936,18 @@ CountValue *DSPHardwareLoops::computeCount(MachineLoop *Loop,
   } else {
     // The IV bump is a power of two. Log_2(IV bump) is the shift amount.
     unsigned Shift = Log2_32(IVBump);
+	unsigned ShiftR = MRI->createVirtualRegister(IntRC);
+	const MCInstrDesc &MoviRD = TII->get(DSP::MovGR);
+		BuildMI(*PH, InsertPos, DL, MoviRD, ShiftR)
+		.addReg(DSP::ZERO)// ?? how to set no-use reg number
+		.addImm(Shift);
 
     // Generate NormR = LSR DistR, Shift.
     unsigned LsrR = MRI->createVirtualRegister(IntRC);
     const MCInstrDesc &LsrD = TII->get(DSP::SRL);
     BuildMI(*PH, InsertPos, DL, LsrD, LsrR)
       .addReg(AdjR, 0, AdjSR)
-      .addImm(Shift);
+      .addReg(ShiftR);
 
     CountR = LsrR;
     CountSR = 0;
