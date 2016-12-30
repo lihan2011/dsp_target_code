@@ -266,6 +266,6 @@ const MCSubtargetInfo &STI) const {
 	assert(MI.getOperand(OpNo).isReg());
 	unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups, STI)<<9;
 	unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo + 1), Fixups, STI)>>2;
-	return (OffBits & 0xFFFF) | RegBits;
+	return (OffBits & 0x1FF) | RegBits;
 }
 #include "DSPGenMCCodeEmitter.inc"
