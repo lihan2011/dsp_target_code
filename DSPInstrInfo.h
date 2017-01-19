@@ -104,9 +104,16 @@ namespace llvm{
 
 		bool getBaseAndOffset(const MachineInstr *MI,
 			int &BasePos,
-			unsigned int OffsetPos) const override;
-		//unsigned CaculateNumOfMemInst(MachineLoop *L);
-		//unsigned CaculateNumOfAluInst(MachineLoop *L);
+			unsigned& AccessSize) const override;
+
+		bool getLdStBaseRegImmOfs(MachineInstr *LdSt,
+			unsigned &BaseReg, unsigned &Offset,
+			const TargetRegisterInfo *TRI) const override;
+		bool getBaseAndOffsetPosition(const MachineInstr *MI,
+			unsigned &BasePos,
+			unsigned &OffsetPos) const override;
+		unsigned getMemAccessSize(const MachineInstr* MI) const;
+		bool isMemOp(const MachineInstr* MI) const;
 	};
 
 	const DSPInstrInfo *createDSPSEInstrInfo(const DSPSubtarget &STI);
