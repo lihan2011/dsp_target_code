@@ -87,6 +87,7 @@ namespace {
 				DEBUG(dbgs() << "*****************************Start Perform SoftWare Pipeling****************************" << "\n");
 				Changed = Process(L);
 			}
+			MF->dump();
 			return true;
 		}
 
@@ -329,6 +330,14 @@ namespace {
 			SMSchedule &Schedule, ValueMapTy *VRMap,
 			InstrMapTy &InstrMap, unsigned LastStageNum,
 			unsigned CurStageNum, bool IsLast);
+
+		void splitLifetimes(MachineBasicBlock *KernelBB, MBBVectorTy &EpilogBBs,
+			SMSchedule &Schedule);
+		void addBranches(MBBVectorTy &PrologBBs, MachineBasicBlock *KernelBB,
+			MBBVectorTy &EpilogBBs, SMSchedule &Schedule,
+			ValueMapTy *VRMap);
+		void removeDeadInstructions(MachineBasicBlock *KernelBB,
+			MBBVectorTy &EpilogBBs);
 		void rewriteScheduledInstr(MachineBasicBlock *BB, SMSchedule &Schedule,
 			InstrMapTy &InstrMap, unsigned CurStageNum,
 			unsigned PhiNum, MachineInstr *Phi,
@@ -759,6 +768,19 @@ static void replaceRegUsesAfterLoop(unsigned FromReg, unsigned ToReg,
 		LIS.createEmptyInterval(ToReg);
 }
 
+
+
+/// Return true if the register has a use that occurs outside the
+/// specified loop.
+static bool hasUseAfterLoop(unsigned Reg, MachineBasicBlock *BB,
+	MachineRegisterInfo &MRI) {
+	for (MachineRegisterInfo::use_iterator I = MRI.use_begin(Reg),
+		E = MRI.use_end();
+		I != E; ++I)
+		if (I->getParent()->getParent() != BB)
+			return true;
+	return false;
+}
 //********************************
 bool DSPSWLoops::canPipelineLoop(MachineLoop *L){
 	// Check if loop body has no control flow (single BasicBlock)
@@ -904,7 +926,7 @@ void SwingSchedulerDAG::schedule(){
 	if (numStages == 0)
 		return;
 
-	//generatePipelinedLoop(Schedule);
+	generatePipelinedLoop(Schedule);
 }
 
 //create the adjacency structure of the nodes in the graph
@@ -955,6 +977,8 @@ bool SwingSchedulerDAG::Circuits::circuit(int V, int S, NodeSetType &NodeSets,bo
 	for (auto W : AdjK[V]) {
 		if (NumPaths > MaxPaths)
 			break;
+
+		// node followed by V
 		if (W < S)
 			continue;
 		if (W == S) {
@@ -2028,6 +2052,437 @@ void SwingSchedulerDAG::rewriteScheduledInstr(
 		}
 	}
 }
+
+
+// Generate the pipeline epilog code. The epilog code finishes the iterations
+// that were started in either the prolog or the kernel.  We create a basic
+// block for each stage that needs to complete.
+void ::SwingSchedulerDAG::generateEpilog(SMSchedule & Schedule, unsigned LastStage,
+										MachineBasicBlock * KernelBB, ValueMapTy * VRMap,
+										MBBVectorTy & EpilogBBs, MBBVectorTy & PrologBBs)
+{
+	// Generate the pipeline epilog code. The epilog code finishes the iterations
+	// that were started in either the prolog or the kernel.  We create a basic
+	// block for each stage that needs to complete.
+	MachineBasicBlock *TBB = nullptr, *FBB = nullptr;
+	SmallVector<MachineOperand, 4> Cond;
+	bool checkBranch = TII->AnalyzeBranch(*KernelBB, TBB, FBB, Cond);
+	assert(!checkBranch && "generateEpilog must be able to analyze the branch");
+	if (checkBranch)
+		return;
+
+	MachineBasicBlock::succ_iterator LoopExitI = KernelBB->succ_begin();
+	if (*LoopExitI == KernelBB)
+		++LoopExitI;
+	assert(LoopExitI != KernelBB->succ_end() && "Expecting a successor");
+	MachineBasicBlock *LoopExitBB = *LoopExitI;
+
+	MachineBasicBlock *PredBB = KernelBB;
+	MachineBasicBlock *EpilogStart = LoopExitBB;
+	InstrMapTy InstrMap;
+
+	// Generate a basic block for each stage, not including the last stage,
+	// which was generated for the kernel.  Each basic block may contain
+	// instructions from multiple stages/iterations.
+	int EpilogStage = LastStage + 1;
+	for (unsigned i = LastStage; i >= 1; --i, ++EpilogStage) {
+		MachineBasicBlock *NewBB = MF.CreateMachineBasicBlock();
+		EpilogBBs.push_back(NewBB);
+		MF.insert(BB, NewBB);
+
+		PredBB->replaceSuccessor(LoopExitBB, NewBB);
+		NewBB->addSuccessor(LoopExitBB);
+
+		if (EpilogStart == LoopExitBB)
+			EpilogStart = NewBB;
+
+		// Add instructions to the epilog depending on the current block.
+		// Process instructions in original program order.
+		for (unsigned StageNum = i; StageNum <= LastStage; ++StageNum) {
+			for (auto &BBI : *BB) {
+				if (BBI.isPHI())
+					continue;
+				MachineInstr *In = &BBI;
+				if (Schedule.isScheduledAtStage(getSUnit(In), StageNum)) {
+					MachineInstr *NewMI = cloneInstr(In, EpilogStage - LastStage, 0);
+					updateInstruction(NewMI, i == 1, EpilogStage, 0, Schedule, VRMap);
+					NewBB->push_back(NewMI);
+					InstrMap[NewMI] = In;
+				}
+			}
+		}
+		generateExistingPhis(NewBB, PrologBBs[i - 1], PredBB, KernelBB, Schedule,
+			VRMap, InstrMap, LastStage, EpilogStage, i == 1);
+		generatePhis(NewBB, PrologBBs[i - 1], PredBB, KernelBB, Schedule, VRMap,
+			InstrMap, LastStage, EpilogStage, i == 1);
+		PredBB = NewBB;
+
+		DEBUG({
+			dbgs() << "epilog:\n";
+		NewBB->dump();
+		});
+	}
+
+	// Fix any Phi nodes in the loop exit block.
+	for (MachineBasicBlock::instr_iterator MI = LoopExitBB->instr_begin(),
+		ME = LoopExitBB->instr_end();
+		MI != ME && MI->isPHI(); ++MI)
+		for (unsigned i = 2, e = MI->getNumOperands() + 1; i != e; i += 2) {
+			MachineOperand &MO = MI->getOperand(i);
+			if (MO.getMBB() == BB)
+				MO.setMBB(PredBB);
+		}
+
+	// Create a branch to the new epilog from the kernel.
+	// Remove the original branch and add a new branch to the epilog.
+	TII->RemoveBranch(*KernelBB);
+	TII->InsertBranch(*KernelBB, KernelBB, EpilogStart, Cond, DebugLoc());
+	// Add a branch to the loop exit.
+	if (EpilogBBs.size() > 0) {
+		MachineBasicBlock *LastEpilogBB = EpilogBBs.back();
+		SmallVector<MachineOperand, 4> Cond1;
+		TII->InsertBranch(*LastEpilogBB, LoopExitBB, 0, Cond1, DebugLoc());
+	}
+}
+
+/// Generate Phis for the specific block in the generated pipelined code.
+/// This function looks at the Phis from the original code to guide the
+/// creation of new Phis.
+void SwingSchedulerDAG::generateExistingPhis(MachineBasicBlock * NewBB, MachineBasicBlock * BB1, MachineBasicBlock * BB2, MachineBasicBlock * KernelBB, SMSchedule & Schedule, ValueMapTy * VRMap, InstrMapTy & InstrMap, unsigned LastStageNum, unsigned CurStageNum, bool IsLast){
+	// Compute the stage number for the inital value of the Phi, which
+	// comes from the prolog. The prolog to use depends on to which kernel/
+	// epilog that we're adding the Phi.
+	unsigned PrologStage = 0;
+	unsigned PrevStage = 0;
+
+	bool InKernel = (LastStageNum == CurStageNum);
+
+	if (InKernel) {
+		PrologStage = LastStageNum - 1;
+		PrevStage = CurStageNum;
+	}
+	else {
+		PrologStage = LastStageNum - (CurStageNum - LastStageNum);
+		PrevStage = LastStageNum + (CurStageNum - LastStageNum) - 1;
+	}
+
+	for (MachineBasicBlock::iterator BBI = BB->instr_begin(),
+		BBE = BB->getFirstNonPHI();
+		BBI != BBE; ++BBI) {
+		unsigned Def = BBI->getOperand(0).getReg();
+
+		unsigned InitVal = 0;
+		unsigned LoopVal = 0;
+		getPhiRegs(BBI, BB, InitVal, LoopVal);
+
+		unsigned PhiOp1 = 0;
+		// The Phi value from the loop body typically is defined in the loop, but
+		// not always. So, we need to check if the value is defined in the loop.
+		unsigned PhiOp2 = LoopVal;
+		if (VRMap[LastStageNum].count(LoopVal))
+			PhiOp2 = VRMap[LastStageNum][LoopVal];
+
+		int StageScheduled = Schedule.stageScheduled(getSUnit(BBI));
+		int LoopValStage =
+			Schedule.stageScheduled(getSUnit(MRI.getVRegDef(LoopVal)));
+		unsigned NumStages = Schedule.getStagesForReg(Def, CurStageNum);
+		if (NumStages == 0) {
+			// We don't need to generate a Phi anymore, but we need to rename any uses
+			// of the Phi value.
+			unsigned NewReg = VRMap[PrevStage][LoopVal];
+			rewriteScheduledInstr(NewBB, Schedule, InstrMap, CurStageNum, 0, BBI, Def,
+				NewReg);
+			if (VRMap[CurStageNum].count(LoopVal))
+				VRMap[CurStageNum][Def] = VRMap[CurStageNum][LoopVal];
+		}
+		// Adjust the number of Phis needed depending on the number of prologs left,
+		// and the distance from where the Phi is first scheduled.
+		unsigned NumPhis = NumStages;
+		if (!InKernel && (int)PrologStage < LoopValStage)
+			// The NumPhis is the maximum number of new Phis needed during the steady
+			// state. If the Phi has not been scheduled in current prolog, then we
+			// need to generate less Phis.
+			NumPhis = std::max((int)NumPhis - (int)(LoopValStage - PrologStage), 1);
+		// The number of Phis cannot exceed the number of prolog stages. Each
+		// stage can potentially define two values.
+		NumPhis = std::min(NumPhis, PrologStage + 2);
+
+		unsigned NewReg = 0;
+
+		unsigned AccessStage = (LoopValStage != -1) ? LoopValStage : StageScheduled;
+		// In the epilog, we may need to look back one stage to get the correct
+		// Phi name because the epilog and prolog blocks execute the same stage.
+		// The correct name is from the previous block only when the Phi has
+		// been completely scheduled prior to the epilog, and Phi value is not
+		// needed in multiple stages.
+		int StageDiff = 0;
+		if (!InKernel && StageScheduled >= LoopValStage && AccessStage == 0 &&
+			NumPhis == 1)
+			StageDiff = 1;
+		// Adjust the computations below when the phi and the loop definition
+		// are scheduled in different stages.
+		if (InKernel && LoopValStage != -1 && StageScheduled > LoopValStage)
+			StageDiff = StageScheduled - LoopValStage;
+		for (unsigned np = 0; np < NumPhis; ++np) {
+			// If the Phi hasn't been scheduled, then use the initial Phi operand
+			// value. Otherwise, use the scheduled version of the instruction. This
+			// is a little complicated when a Phi references another Phi.
+			if (np > PrologStage || StageScheduled >= (int)LastStageNum)
+				PhiOp1 = InitVal;
+			// Check if the Phi has already been scheduled in a prolog stage.
+			else if (PrologStage >= AccessStage + StageDiff + np &&
+				VRMap[PrologStage - StageDiff - np].count(LoopVal) != 0)
+				PhiOp1 = VRMap[PrologStage - StageDiff - np][LoopVal];
+			// Check if the Phi has already been scheduled, but the loop intruction
+			// is either another Phi, or doesn't occur in the loop.
+			else if (PrologStage >= AccessStage + StageDiff + np) {
+				// If the Phi references another Phi, we need to examine the other
+				// Phi to get the correct value.
+				PhiOp1 = LoopVal;
+				MachineInstr *InstOp1 = MRI.getVRegDef(PhiOp1);
+				int Indirects = 1;
+				while (InstOp1 && InstOp1->isPHI() && InstOp1->getParent() == BB) {
+					int PhiStage = Schedule.stageScheduled(getSUnit(InstOp1));
+					if ((int)(PrologStage - StageDiff - np) < PhiStage + Indirects)
+						PhiOp1 = getInitPhiReg(InstOp1, BB);
+					else
+						PhiOp1 = getLoopPhiReg(InstOp1, BB);
+					InstOp1 = MRI.getVRegDef(PhiOp1);
+					int PhiOpStage = Schedule.stageScheduled(getSUnit(InstOp1));
+					int StageAdj = (PhiOpStage != -1 ? PhiStage - PhiOpStage : 0);
+					if (PhiOpStage != -1 && PrologStage - StageAdj >= Indirects + np &&
+						VRMap[PrologStage - StageAdj - Indirects - np].count(PhiOp1)) {
+						PhiOp1 = VRMap[PrologStage - StageAdj - Indirects - np][PhiOp1];
+						break;
+					}
+					++Indirects;
+				}
+			}
+			else
+				PhiOp1 = InitVal;
+			// If this references a generated Phi in the kernel, get the Phi operand
+			// from the incoming block.
+			if (MachineInstr *InstOp1 = MRI.getVRegDef(PhiOp1))
+				if (InstOp1->isPHI() && InstOp1->getParent() == KernelBB)
+					PhiOp1 = getInitPhiReg(InstOp1, KernelBB);
+
+			MachineInstr *PhiInst = MRI.getVRegDef(LoopVal);
+			bool LoopDefIsPhi = PhiInst && PhiInst->isPHI();
+			// In the epilog, a map lookup is needed to get the value from the kernel,
+			// or previous epilog block. How is does this depends on if the
+			// instruction is scheduled in the previous block.
+			if (!InKernel) {
+				int StageDiffAdj = 0;
+				if (LoopValStage != -1 && StageScheduled > LoopValStage)
+					StageDiffAdj = StageScheduled - LoopValStage;
+				// Use the loop value defined in the kernel, unless the kernel
+				// contains the last definition of the Phi.
+				if (np == 0 && PrevStage == LastStageNum &&
+					(StageScheduled != 0 || LoopValStage != 0) &&
+					VRMap[PrevStage - StageDiffAdj].count(LoopVal))
+					PhiOp2 = VRMap[PrevStage - StageDiffAdj][LoopVal];
+				// Use the value defined by the Phi. We add one because we switch
+				// from looking at the loop value to the Phi definition.
+				else if (np > 0 && PrevStage == LastStageNum &&
+					VRMap[PrevStage - np + 1].count(Def))
+					PhiOp2 = VRMap[PrevStage - np + 1][Def];
+				// Use the loop value defined in the kernel.
+				else if ((unsigned)LoopValStage + StageDiffAdj > PrologStage + 1 &&
+					VRMap[PrevStage - StageDiffAdj - np].count(LoopVal))
+					PhiOp2 = VRMap[PrevStage - StageDiffAdj - np][LoopVal];
+				// Use the value defined by the Phi, unless we're generating the first
+				// epilog and the Phi refers to a Phi in a different stage.
+				else if (VRMap[PrevStage - np].count(Def) &&
+					(!LoopDefIsPhi || PrevStage != LastStageNum))
+					PhiOp2 = VRMap[PrevStage - np][Def];
+			}
+
+			// Check if we can reuse an existing Phi. This occurs when a Phi
+			// references another Phi, and the other Phi is scheduled in an
+			// earlier stage. We can try to reuse an existing Phi up until the last
+			// stage of the current Phi.
+			if (LoopDefIsPhi && VRMap[CurStageNum].count(LoopVal) &&
+				LoopValStage >= (int)(CurStageNum - LastStageNum)) {
+				int LVNumStages = Schedule.getStagesForPhi(LoopVal);
+				int StageDiff = (StageScheduled - LoopValStage);
+				LVNumStages -= StageDiff;
+				if (LVNumStages > (int)np) {
+					NewReg = PhiOp2;
+					unsigned ReuseStage = CurStageNum;
+					if (Schedule.isLoopCarried(this, PhiInst))
+						ReuseStage -= LVNumStages;
+					// Check if the Phi to reuse has been generated yet. If not, then
+					// there is nothing to reuse.
+					if (VRMap[ReuseStage].count(LoopVal)) {
+						NewReg = VRMap[ReuseStage][LoopVal];
+
+						rewriteScheduledInstr(NewBB, Schedule, InstrMap, CurStageNum, np,
+							BBI, Def, NewReg);
+						// Update the map with the new Phi name.
+						VRMap[CurStageNum - np][Def] = NewReg;
+						PhiOp2 = NewReg;
+						if (VRMap[LastStageNum - np - 1].count(LoopVal))
+							PhiOp2 = VRMap[LastStageNum - np - 1][LoopVal];
+
+						if (IsLast && np == NumPhis - 1)
+							replaceRegUsesAfterLoop(Def, NewReg, BB, MRI, *LIS);
+						continue;
+					}
+				}
+				else if (StageDiff > 0 &&
+					VRMap[CurStageNum - StageDiff - np].count(LoopVal))
+					PhiOp2 = VRMap[CurStageNum - StageDiff - np][LoopVal];
+			}
+
+			const TargetRegisterClass *RC = MRI.getRegClass(Def);
+			NewReg = MRI.createVirtualRegister(RC);
+
+			MachineInstrBuilder NewPhi =
+				BuildMI(*NewBB, NewBB->getFirstNonPHI(), DebugLoc(),
+					TII->get(TargetOpcode::PHI), NewReg);
+			NewPhi.addReg(PhiOp1).addMBB(BB1);
+			NewPhi.addReg(PhiOp2).addMBB(BB2);
+			if (np == 0)
+				InstrMap[NewPhi] = BBI;
+
+			// We define the Phis after creating the new pipelined code, so
+			// we need to rename the Phi values in scheduled instructions.
+
+			unsigned PrevReg = 0;
+			if (InKernel && VRMap[PrevStage - np].count(LoopVal))
+				PrevReg = VRMap[PrevStage - np][LoopVal];
+			rewriteScheduledInstr(NewBB, Schedule, InstrMap, CurStageNum, np, BBI,
+				Def, NewReg, PrevReg);
+			// If the Phi has been scheduled, use the new name for rewriting.
+			if (VRMap[CurStageNum - np].count(Def)) {
+				unsigned R = VRMap[CurStageNum - np][Def];
+				rewriteScheduledInstr(NewBB, Schedule, InstrMap, CurStageNum, np, BBI,
+					R, NewReg);
+			}
+
+			// Check if we need to rename any uses that occurs after the loop. The
+			// register to replace depends on whether the Phi is scheduled in the
+			// epilog.
+			if (IsLast && np == NumPhis - 1)
+				replaceRegUsesAfterLoop(Def, NewReg, BB, MRI, *LIS);
+
+			// In the kernel, a dependent Phi uses the value from this Phi.
+			if (InKernel)
+				PhiOp2 = NewReg;
+
+			// Update the map with the new Phi name.
+			VRMap[CurStageNum - np][Def] = NewReg;
+		}
+
+		while (NumPhis++ < NumStages) {
+			rewriteScheduledInstr(NewBB, Schedule, InstrMap, CurStageNum, NumPhis,
+				BBI, Def, NewReg, 0);
+		}
+
+		// Check if we need to rename a Phi that has been eliminated due to
+		// scheduling.
+		if (NumStages == 0 && IsLast && VRMap[CurStageNum].count(LoopVal))
+			replaceRegUsesAfterLoop(Def, VRMap[CurStageNum][LoopVal], BB, MRI,* LIS);
+	}
+}
+
+
+/// Generate Phis for the specified block in the generated pipelined code.
+/// These are new Phis needed because the definition is scheduled after the
+/// use in the pipelened sequence.
+void SwingSchedulerDAG::generatePhis(MachineBasicBlock * NewBB, MachineBasicBlock * BB1, MachineBasicBlock * BB2, MachineBasicBlock * KernelBB, SMSchedule & Schedule, ValueMapTy * VRMap, InstrMapTy & InstrMap, unsigned LastStageNum, unsigned CurStageNum, bool IsLast){
+	// Compute the stage number that contains the initial Phi value, and
+	// the Phi from the previous stage.
+	unsigned PrologStage = 0;
+	unsigned PrevStage = 0;
+	unsigned StageDiff = CurStageNum - LastStageNum;
+	bool InKernel = (StageDiff == 0);
+	if (InKernel) {
+		PrologStage = LastStageNum - 1;
+		PrevStage = CurStageNum;
+	}
+	else {
+		PrologStage = LastStageNum - StageDiff;
+		PrevStage = LastStageNum + StageDiff - 1;
+	}
+
+	for (MachineBasicBlock::iterator BBI = BB->getFirstNonPHI(),
+		BBE = BB->instr_end();
+		BBI != BBE; ++BBI) {
+		for (unsigned i = 0, e = BBI->getNumOperands(); i != e; ++i) {
+			MachineOperand &MO = BBI->getOperand(i);
+			if (!MO.isReg() || !MO.isDef() ||
+				!TargetRegisterInfo::isVirtualRegister(MO.getReg()))
+				continue;
+
+			int StageScheduled = Schedule.stageScheduled(getSUnit(BBI));
+			assert(StageScheduled != -1 && "Expecting scheduled instruction.");
+			unsigned Def = MO.getReg();
+			unsigned NumPhis = Schedule.getStagesForReg(Def, CurStageNum);
+			// An instruction scheduled in stage 0 and is used after the loop
+			// requires a phi in the epilog for the last definition from either
+			// the kernel or prolog.
+			if (!InKernel && NumPhis == 0 && StageScheduled == 0 &&
+				hasUseAfterLoop(Def, BB, MRI))
+				NumPhis = 1;
+			if (!InKernel && (unsigned)StageScheduled > PrologStage)
+				continue;
+
+			unsigned PhiOp2 = VRMap[PrevStage][Def];
+			if (MachineInstr *InstOp2 = MRI.getVRegDef(PhiOp2))
+				if (InstOp2->isPHI() && InstOp2->getParent() == NewBB)
+					PhiOp2 = getLoopPhiReg(InstOp2, BB2);
+			// The number of Phis can't exceed the number of prolog stages. The
+			// prolog stage number is zero based.
+			if (NumPhis > PrologStage + 1 - StageScheduled)
+				NumPhis = PrologStage + 1 - StageScheduled;
+			for (unsigned np = 0; np < NumPhis; ++np) {
+				unsigned PhiOp1 = VRMap[PrologStage][Def];
+				if (np <= PrologStage)
+					PhiOp1 = VRMap[PrologStage - np][Def];
+				if (MachineInstr *InstOp1 = MRI.getVRegDef(PhiOp1)) {
+					if (InstOp1->isPHI() && InstOp1->getParent() == KernelBB)
+						PhiOp1 = getInitPhiReg(InstOp1, KernelBB);
+					if (InstOp1->isPHI() && InstOp1->getParent() == NewBB)
+						PhiOp1 = getInitPhiReg(InstOp1, NewBB);
+				}
+				if (!InKernel)
+					PhiOp2 = VRMap[PrevStage - np][Def];
+
+				const TargetRegisterClass *RC = MRI.getRegClass(Def);
+				unsigned NewReg = MRI.createVirtualRegister(RC);
+
+				MachineInstrBuilder NewPhi =
+					BuildMI(*NewBB, NewBB->getFirstNonPHI(), DebugLoc(),
+						TII->get(TargetOpcode::PHI), NewReg);
+				NewPhi.addReg(PhiOp1).addMBB(BB1);
+				NewPhi.addReg(PhiOp2).addMBB(BB2);
+				if (np == 0)
+					InstrMap[NewPhi] = BBI;
+
+				// Rewrite uses and update the map. The actions depend upon whether
+				// we generating code for the kernel or epilog blocks.
+				if (InKernel) {
+					rewriteScheduledInstr(NewBB, Schedule, InstrMap, CurStageNum, np, BBI,
+						PhiOp1, NewReg);
+					rewriteScheduledInstr(NewBB, Schedule, InstrMap, CurStageNum, np, BBI,
+						PhiOp2, NewReg);
+
+					PhiOp2 = NewReg;
+					VRMap[PrevStage - np - 1][Def] = NewReg;
+				}
+				else {
+					VRMap[CurStageNum - np][Def] = NewReg;
+					if (np == NumPhis - 1)
+						rewriteScheduledInstr(NewBB, Schedule, InstrMap, CurStageNum, np,
+							BBI, Def, NewReg);
+				}
+				if (IsLast && np == NumPhis - 1)
+					replaceRegUsesAfterLoop(Def, NewReg, BB, MRI, *LIS);
+			}
+		}
+	}
+}
 void SwingSchedulerDAG::generatePipelinedLoop(SMSchedule &Schedule){
 	MachineBasicBlock *kernelBB = MF.CreateMachineBasicBlock(BB->getBasicBlock());
 	unsigned maxStageCount = Schedule.getMaxStageCount();
@@ -2047,7 +2502,7 @@ void SwingSchedulerDAG::generatePipelinedLoop(SMSchedule &Schedule){
 
 	// Rearrange the instructions to generate the new, pipelined loop,
 	// and update register names as needed.
-	for (int Cycle = Schedule.getFinalCycle(),
+	for (int Cycle = Schedule.getFirstCycle(),
 		LastCycle = Schedule.getFinalCycle();
 		Cycle <= LastCycle; ++Cycle){
 		std::deque<SUnit *> &CycleInstrs = Schedule.getInstructions(Cycle);
@@ -2072,8 +2527,183 @@ void SwingSchedulerDAG::generatePipelinedLoop(SMSchedule &Schedule){
 		kernelBB->push_back(NewMI);
 		InstrMap[NewMI] = I;
 	}
+
+	kernelBB->transferSuccessors(BB);
+	kernelBB->replaceSuccessor(BB, kernelBB);
+
+	generateExistingPhis(kernelBB, PrologBBs.back(), kernelBB, kernelBB, Schedule,
+		VRMap, InstrMap, maxStageCount, maxStageCount, false);
+	generatePhis(kernelBB, PrologBBs.back(), kernelBB, kernelBB, Schedule, VRMap,
+		InstrMap, maxStageCount, maxStageCount, false);
+
+	DEBUG(dbgs() << "New block\n"; kernelBB->dump(););
+
+
+	SmallVector<MachineBasicBlock *, 4> EpilogBBs;
+	// Generate the epilog instructions to complete the pipeline.
+	generateEpilog(Schedule, maxStageCount, kernelBB, VRMap, EpilogBBs,
+		PrologBBs);
+
+	// We need this step because the register allocation doesn't handle some
+	// situations well, so we insert copies to help out.
+	splitLifetimes(kernelBB, EpilogBBs, Schedule);
+
+	// Remove dead instructions due to loop induction variables.
+	removeDeadInstructions(kernelBB, EpilogBBs);
+
+	// Add branches between prolog and epilog blocks.
+	addBranches(PrologBBs, kernelBB, EpilogBBs, Schedule, VRMap);
+
+	// Remove the original loop since it's no longer referenced.
+	BB->clear();
+	BB->eraseFromParent();
+
+	delete[] VRMap;
 }
 
+
+/// For loop carried definitions, we split the lifetime of a virtual register
+/// that has uses past the definition in the next iteration. A copy with a new
+/// virtual register is inserted before the definition, which helps with
+/// generating a better register assignment.
+///
+///   v1 = phi(a, v2)     v1 = phi(a, v2)
+///   v2 = phi(b, v3)     v2 = phi(b, v3)
+///   v3 = ..             v4 = copy v1
+///   .. = v1             v3 = ..
+///                       .. = v4
+void ::SwingSchedulerDAG::splitLifetimes(MachineBasicBlock * KernelBB, MBBVectorTy & EpilogBBs, SMSchedule & Schedule)
+{
+	const TargetRegisterInfo *TRI = MF.getTarget().getRegisterInfo();
+	for (MachineBasicBlock::iterator BBI = KernelBB->instr_begin(),
+		BBF = KernelBB->getFirstNonPHI();
+		BBI != BBF; ++BBI) {
+		unsigned Def = BBI->getOperand(0).getReg();
+		// Check for any Phi definition that used as an operand of another Phi
+		// in the same block.
+		for (MachineRegisterInfo::use_instr_iterator I = MRI.use_instr_begin(Def),
+			E = MRI.use_instr_end();
+			I != E; ++I) {
+			if (I->isPHI() && I->getParent() == KernelBB) {
+				// Get the loop carried definition.
+				unsigned LCDef = getLoopPhiReg(BBI, KernelBB);
+				if (!LCDef)
+					continue;
+				MachineInstr *MI = MRI.getVRegDef(LCDef);
+				if (!MI || MI->getParent() != KernelBB || MI->isPHI())
+					continue;
+				// Search through the rest of the block looking for uses of the Phi
+				// definition. If one occurs, then split the lifetime.
+				unsigned SplitReg = 0;
+				for (auto &BBJ : make_range(MachineBasicBlock::instr_iterator(MI),
+					KernelBB->instr_end()))
+					if (BBJ.readsRegister(Def)) {
+						// We split the lifetime when we find the first use.
+						if (SplitReg == 0) {
+							SplitReg = MRI.createVirtualRegister(MRI.getRegClass(Def));
+							BuildMI(*KernelBB, MI, MI->getDebugLoc(),
+								TII->get(TargetOpcode::COPY), SplitReg)
+								.addReg(Def);
+						}
+						BBJ.substituteRegister(Def, SplitReg, 0, *TRI);
+					}
+				if (!SplitReg)
+					continue;
+				// Search through each of the epilog blocks for any uses to be renamed.
+				for (auto &Epilog : EpilogBBs)
+					for (auto &I : *Epilog)
+						if (I.readsRegister(Def))
+							I.substituteRegister(Def, SplitReg, 0, *TRI);
+				break;
+			}
+		}
+	}
+}
+
+/// Create branches from each prolog basic block to the appropriate epilog
+/// block.  These edges are needed if the loop ends before reaching the
+/// kernel.
+void ::SwingSchedulerDAG::addBranches(MBBVectorTy & PrologBBs, MachineBasicBlock * KernelBB, MBBVectorTy & EpilogBBs, SMSchedule & Schedule, ValueMapTy * VRMap)
+{
+	assert(PrologBBs.size() == EpilogBBs.size() && "Prolog/Epilog mismatch");
+	//MachineInstr *IndVar = pass.LI.LoopInductionVar;
+	//MachineInstr *Cmp = pass.LI.LoopCompare;
+	MachineBasicBlock *LastPro = KernelBB;
+	MachineBasicBlock *LastEpi = KernelBB;
+
+	// Start from the blocks connected to the kernel and work "out"
+	// to the first prolog and the last epilog blocks.
+	SmallVector<MachineInstr *, 4> PrevInsts;
+	unsigned MaxIter = PrologBBs.size() - 1;
+	unsigned LC = UINT_MAX;
+	unsigned LCMin = UINT_MAX;
+}
+
+void ::SwingSchedulerDAG::removeDeadInstructions(MachineBasicBlock * KernelBB, MBBVectorTy & EpilogBBs)
+{
+	// For each epilog block, check that the value defined by each instruction
+	// is used.  If not, delete it.
+	for (MBBVectorTy::reverse_iterator MBB = EpilogBBs.rbegin(),
+		MBE = EpilogBBs.rend();
+		MBB != MBE; ++MBB)
+		for (MachineBasicBlock::reverse_instr_iterator MI = (*MBB)->instr_rbegin(),
+			ME = (*MBB)->instr_rend();
+			MI != ME;) {
+			// From DeadMachineInstructionElem. Don't delete inline assembly.
+			if (MI->isInlineAsm()) {
+				++MI;
+				continue;
+			}
+			bool SawStore = false;
+			// Check if it's safe to remove the instruction due to side effects.
+			// We can, and want to, remove Phis here.
+			if (!MI->isSafeToMove(nullptr,nullptr,SawStore) && !MI->isPHI()) {
+				++MI;
+				continue;
+			}
+			bool used = true;
+			for (MachineInstr::mop_iterator MOI = MI->operands_begin(),
+				MOE = MI->operands_end();
+				MOI != MOE; ++MOI) {
+				if (!MOI->isReg() || !MOI->isDef())
+					continue;
+				unsigned reg = MOI->getReg();
+				unsigned realUses = 0;
+				for (MachineRegisterInfo::use_iterator UI = MRI.use_begin(reg),
+					EI = MRI.use_end();
+					UI != EI; ++UI) {
+					// Check if there are any uses that occur only in the original
+					// loop.  If so, that's not a real use.
+					if (UI->getParent()->getParent() != BB) {
+						realUses++;
+						used = true;
+						break;
+					}
+				}
+				if (realUses > 0)
+					break;
+				used = false;
+			}
+			if (!used) {
+				MI->eraseFromParent();
+				ME = (*MBB)->instr_rend();
+				continue;
+			}
+			++MI;
+		}
+	// In the kernel block, check if we can remove a Phi that generates a value
+	// used in an instruction removed in the epilog block.
+	for (MachineBasicBlock::iterator BBI = KernelBB->instr_begin(),
+		BBE = KernelBB->getFirstNonPHI();
+		BBI != BBE;) {
+		MachineInstr *MI = &*BBI;
+		++BBI;
+		unsigned reg = MI->getOperand(0).getReg();
+		if (MRI.use_begin(reg) == MRI.use_end()) {
+			MI->eraseFromParent();
+		}
+	}
+}
 /// Generate the pipeline prolog code.
 void SwingSchedulerDAG::generateProlog(SMSchedule &Schedule, unsigned LastStage,
 	MachineBasicBlock *KernelBB,
@@ -2085,6 +2715,8 @@ void SwingSchedulerDAG::generateProlog(SMSchedule &Schedule, unsigned LastStage,
 	MachineBasicBlock *PredBB = PreheaderBB;
 	InstrMapTy InstrMap;
 
+
+	DEBUG(dbgs() << "LastStage is" << LastStage << "\n");
 	// Generate a basic block for each stage, not including the last stage,
 	// which will be generated in the kernel. Each basic block may contain
 	// instructions from multiple stages/iterations.
