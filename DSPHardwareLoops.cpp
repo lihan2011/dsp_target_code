@@ -378,6 +378,9 @@ bool DSPHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
       Changed |= convertToHardwareLoop(L);
   }
 
+  if (DSPDEBUG)
+	  std::cout << "<--** Totally Complete " << NumHWLoops << 
+	  " HardwareLoop conversions**-->" << std::endl;
   if (DSPDEBUG && Changed)
 	DEBUG({ dbgs() << "\n** HWLoops  result **\n";   MF.print(dbgs()); });
 
@@ -1355,7 +1358,7 @@ bool DSPHardwareLoops::convertToHardwareLoop(MachineLoop *L) {
 
   ++NumHWLoops;
   if (DSPDEBUG)
-	  std::cout << "<**Complete one HardwareLoop conversion**>"
+	  std::cout << "<**Complete this HardwareLoop conversion**>"
 	  << std::endl;
 
   return true;
@@ -1868,6 +1871,8 @@ MachineBasicBlock *DSPHardwareLoops::createPreheaderForLoop(
 
 /// \brief Create a preheader for a given loop.
 /// It is not valid to replace the loop header with this method.
+/// It is failed when latch block is loop header (only one block
+/// in loop).
 MachineBasicBlock *DSPHardwareLoops::splitLatchBlock(
 	MachineLoop *L) {
 	MachineBasicBlock *Latch = L->getLoopLatch();

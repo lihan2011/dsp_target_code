@@ -15,6 +15,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "DSP.h"
 #include "DSPTargetMachine.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -30,6 +31,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "hwloops fixup"
 #define DSPDEBUG true
+
+STATISTIC(NumHWLoopsFixup, "Number of hardware loops fixup succesfully");
 
 namespace llvm {
 	FunctionPass *createDSPFixupHwLoops();
@@ -215,8 +218,8 @@ MachineBasicBlock *DSPFixupHwLoops::splitLatchBlock(
 		if (PB == Preheader) {
 			if (DSPDEBUG) {
 				std::cout << "Preheader is the predecessor of Latch," << std::endl;
-				std::cout << "so does Latch. Only one latch block in loop." 
-					<< std::endl;
+				//std::cout << "so does Latch. Only one latch block in loop." 
+				//	<< std::endl;
 			}
 			PredhasPreheader = true;
 			continue;

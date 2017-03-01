@@ -150,7 +150,7 @@ void DSPAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 		//std::cout << "CurVal fetched from Data[]: " << CurVal << std::endl;
 	}
 	std::cout << "CurVal  before fixup (instr last " 
-		<< NumBytes << " bytes) :" << CurVal << std::endl;
+		<< NumBytes << " bytes) :" << std::hex << CurVal << std::endl;
 
 	uint64_t Mask = ((uint64_t)(-1) >> (64 - getFixupKindInfo(Kind).TargetSize));
 	uint64_t Shift = getShift(Kind);
@@ -160,7 +160,7 @@ void DSPAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
 	Value = Value << Shift;
 	//std::cout << "Value << Shift " << Value << std::endl;
 	CurVal |= Value & Mask;
-	std::cout << "CurVal after fixup: \t" << CurVal << std::endl;
+	std::cout << "CurVal after fixup: \t" << std::hex << CurVal << std::endl;
 
 	// Write out the fixed up bytes back to the code/data bits.
 	for (unsigned i = 0; i != NumBytes; ++i) {
