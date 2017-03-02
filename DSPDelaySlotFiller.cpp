@@ -132,7 +132,12 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 			InsertNopOfNum(MBB, I, 2, TII);
 			continue;
 		}
-		if (Next_2 == MBB.end())
+		//When the next instruction at the bottom of this MBB does
+		//not use loaded register or it is a comparison, inserting
+		//one delay slot is enough.
+		//A good example: compoundcondition.s
+		if (Next_2 == MBB.end() 
+			&& (!isUseOutputReg(Next, reg) || Next->isCompare()))
 		{
 			InsertNopOfNum(MBB, I, 1, TII);
 			continue;
@@ -143,7 +148,9 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 			continue;
 		}
 		else if (isUseOutputReg(Next_2, reg) 
-			&& !Next->isCompare())
+			//For safety in case of VLIW bundle
+			//&& !Next_2->isCompare())
+			)
 		{
 			InsertNopOfNum(MBB, I, 1, TII);
 			continue;
