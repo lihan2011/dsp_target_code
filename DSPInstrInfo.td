@@ -1386,27 +1386,26 @@ class vloadur32_fmt<bits<3> type, bits<3> op, bits<5> funct, string instr_asm, I
 def vloadur_32 : vloadur32_fmt<2, 0b010, 0b11101, "vloadur32", LD_Ins_SLOT23, VPR4Out, GPROut, simm9, immSExt9>;
 
 class storeu8_fmt<bits<3> type, bits<3> op, bits<5> funct, string instr_asm, InstrItinClass itin, RegisterClass RD, RegisterClass RS, Operand Od, PatLeaf imm_type>:
-  F_LS_2Reg_imm9<type, op, funct, (outs RD:$ra), (ins RS:$rb, Od:$imm9),
+  F_LS_2Reg_imm9<type, op, funct, (outs), (ins  RD:$ra, RS:$rb, Od:$imm9),
    !strconcat(instr_asm, "\t$ra, $rb, $imm9"),
-   [(set RD:$ra, (int_dsp_storeu_8 RS:$rb, imm_type:$imm9))], itin> {
-
+   [(int_dsp_storeu_8  RD:$ra, RS:$rb, imm_type:$imm9)], itin> {
    }
 
 def storeu_8 : storeu8_fmt<2, 0b011, 0b01000, "storeu8", ST_Ins_SLOT23, GPROut, GPROut, simm9, immSExt9>;
 
 class storeu16_fmt<bits<3> type, bits<3> op, bits<5> funct, string instr_asm, InstrItinClass itin, RegisterClass RD, RegisterClass RS, Operand Od, PatLeaf imm_type>:
-  F_LS_2Reg_imm9<type, op, funct, (outs RD:$ra), (ins RS:$rb, Od:$imm9),
+  F_LS_2Reg_imm9<type, op, funct, (outs), (ins  RD:$ra,RS:$rb, Od:$imm9),
    !strconcat(instr_asm, "\t$ra, $rb, $imm9"),
-   [(set RD:$ra, (int_dsp_storeu_16 RS:$rb, imm_type:$imm9))], itin> {
+   [(int_dsp_storeu_16  RD:$ra,RS:$rb, imm_type:$imm9)], itin> {
 
    }
 
 def storeu_16 : storeu16_fmt<2, 0b011, 0b01001, "storeu16", ST_Ins_SLOT23, GPROut, GPROut, simm9, immSExt9>;
 
 class storeu32_fmt<bits<3> type, bits<3> op, bits<5> funct, string instr_asm, InstrItinClass itin, RegisterClass RD, RegisterClass RS, Operand Od, PatLeaf imm_type>:
-  F_LS_2Reg_imm9<type, op, funct, (outs RD:$ra), (ins RS:$rb, Od:$imm9),
+  F_LS_2Reg_imm9<type, op, funct, (outs), (ins  RD:$ra, RS:$rb, Od:$imm9),
    !strconcat(instr_asm, "\t$ra, $rb, $imm9"),
-   [(set RD:$ra, (int_dsp_storeu_32 RS:$rb, imm_type:$imm9))], itin> {
+   [(int_dsp_storeu_32  RD:$ra,  RS:$rb, imm_type:$imm9)], itin> {
 
    }
 

@@ -94,6 +94,7 @@ bool DSPPassConfig::addPreRegAlloc() {
 		// $gp is a caller-saved register.
 		addPass(createDSPEmitGPRestorePass(getDSPTargetMachine()));
 	}*/
+	addPass(createDSPHandlerCCPass());
 	if (EnableSwPipeline)
 	{
 		addPass(createLoopPipelinePass());

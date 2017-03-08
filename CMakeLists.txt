@@ -22,6 +22,7 @@ add_llvm_target(DSPCodeGen
 	DSPInstrInfo.cpp
 	DSPISelLowering.cpp
 	DSPFrameLowering.cpp
+	DSPHandleSW.cpp
 	DSPMachineFunction.cpp
 	DSPRegisterInfo.cpp
 	DSPSEFrameLowering.cpp
