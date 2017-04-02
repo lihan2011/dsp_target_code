@@ -29,12 +29,17 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Support/Debug.h"
+//#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/CommandLine.h"
 #include <iostream>
 using namespace llvm;
 
 #define DEBUG_TYPE "delay-slot-filler"
 
 STATISTIC(FilledSlots, "Number of delay slots filled");
+
+extern cl::opt<bool> DisablePacketizer;
 
 namespace {
   typedef MachineBasicBlock::iterator Iter;
@@ -54,6 +59,8 @@ namespace {
       for (MachineFunction::iterator FI = F.begin(), FE = F.end();
            FI != FE; ++FI)
         Changed |= runOnMachineBasicBlock(*FI);
+
+	  DEBUG({ dbgs() << "**DelaySlot  result**\n";   F.print(dbgs()); });
       return Changed;
     }
   private:
@@ -81,6 +88,7 @@ static bool isVLIW(const MachineInstr *MI){
 	return false;
 }
 
+
 //read the ld output reg
 static bool isUseOutputReg(MachineInstr *I, unsigned Reg){
 	bool isPhys = TargetRegisterInfo::isPhysicalRegister(Reg);
@@ -89,26 +97,29 @@ static bool isUseOutputReg(MachineInstr *I, unsigned Reg){
 		const MachineOperand &MO = I->getOperand(i);
 		if (!MO.isReg() || !MO.isUse())
 			continue;
+
 		unsigned MOReg = MO.getReg();
 		Found = (MOReg == Reg);
 		if (Found) break;
 	}
 	return Found;
 }
+
 static void InsertNopOfNum(MachineBasicBlock &MBB,Iter I, unsigned num, const DSPInstrInfo *TII){
 	for (int i = 0; i < num; i++)
 	{
 		BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
 	}
 }
+
 /// runOnMachineBasicBlock - Fill in delay slots for the given basic block.
 /// We assume there is only one delay slot per delayed instruction.
 bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
-  bool Changed = false;
-
-  for (Iter I = MBB.begin(); I != MBB.end(); ++I) {
-    if (!hasUnoccupiedSlot(&*I))
-      continue;
+	bool Changed = false;
+	
+	for (Iter I = MBB.begin(); I != MBB.end(); ++I) {
+		if (!hasUnoccupiedSlot(&*I))
+			continue;
 
     ++FilledSlots;
     Changed = true;
@@ -121,16 +132,25 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 			InsertNopOfNum(MBB, I, 2, TII);
 			continue;
 		}
-		if (Next_2 == MBB.end())
+		//When the next instruction at the bottom of this MBB does
+		//not use loaded register or it is a comparison, inserting
+		//one delay slot is enough.
+		//A good example: compoundcondition.s
+		if (Next_2 == MBB.end() 
+			&& (!isUseOutputReg(Next, reg) || Next->isCompare()))
 		{
 			InsertNopOfNum(MBB, I, 1, TII);
 			continue;
 		}
-		if (isUseOutputReg(Next, reg)) {
+		if (isUseOutputReg(Next, reg) 
+			&& !Next->isCompare()) {
 			InsertNopOfNum(MBB, I, 2, TII);
 			continue;
 		}
-		else if (isUseOutputReg(Next_2, reg))
+		else if (isUseOutputReg(Next_2, reg) 
+			//For safety in case of VLIW bundle
+			//&& !Next_2->isCompare())
+			)
 		{
 			InsertNopOfNum(MBB, I, 1, TII);
 			continue;
@@ -138,21 +158,37 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
 		else continue;
 	}
     // Bundle the NOP to the instruction with the delay slot.
-    
-	/*for (int i = 0; i < 2; i++)
-	{
-		BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
-	}*/
 	InsertNopOfNum(MBB, I, 2, TII);
-	//MIBundleBuilder MIB(MBB, I, std::next(I, 2));
-	//MIB.append()
-	//BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP_S));
+		//Iter next = std::next(I);
 
-  }
+		//// Scalar version just insert 2 nop
+		//for (int i = 0; i < 2; i++)
+		//{
+		//	BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+		//}
+		//if (!DisablePacketizer) {
+		//	//Bundle next nop 1
+		//	MIBundleBuilder(MBB, std::next(I), std::next(I, 3));
+		//	//Bundle next nop 2
+		//	for (int i = 0; i < 2; i++)
+		//	{
+		//		BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+		//	}
+		//	MIBundleBuilder(MBB, std::next(I), std::next(I, 3));
+		//	//Make sure I seperate from next inserted nop
+		//	BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(DSP::NOP));
+		//	MIBundleBuilder(MBB, I, std::next(I, 2));
+		//	//Make sure next I separate from previous inserted nop
+		//	if (next != MBB.end() && !next->hasDelaySlot()) {
+		//		BuildMI(MBB, std::next(next), I->getDebugLoc(), TII->get(DSP::NOP));
+		//		MIBundleBuilder(MBB, next, std::next(next, 2));
+		//	}
+		//}
 
-  return Changed;
+	}
+
+	return Changed;
 }
-
 /// createDSPDelaySlotFillerPass - Returns a pass that fills in delay
 /// slots in DSP MachineFunctions
 FunctionPass *llvm::createDSPDelaySlotFillerPass(DSPTargetMachine &tm) {

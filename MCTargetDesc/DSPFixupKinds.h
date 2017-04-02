@@ -48,7 +48,10 @@ namespace llvm {
 			// PC relative branch fixup resulting in - R_CPU0_PC24.
 			// cpu0 PC24, e.g. jeq, jmp
 			//fixup_DSP_PC24,
+			//For JC, JNC, JMP
 			fixup_DSP_PC26,
+			//For Loop
+			fixup_DSP_PC16,
 			// Marker
 			LastTargetFixupKind,
 			NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind

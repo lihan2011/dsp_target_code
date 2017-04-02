@@ -23,10 +23,13 @@
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/CommandLine.h"
 #include <iostream>
 #include <memory>
+
 using namespace llvm;
 
+extern cl::opt<bool> DisablePacketizer;
 
 #define DEBUG_TYPE "mccodeemitter"
 
@@ -81,7 +84,10 @@ const MCSubtargetInfo &STI) const
 		std::cout << " ST binary£¡£¡" << std::hex << Binary << std::endl;
 	}
 	DSPMCInst *MCI = (DSPMCInst*)(&MI);
-	DSPVLIWBundler::getBundler()->PerformBundle(MCI,&Binary);
+
+	// \Scalar Version DSP to comment it
+	if(!DisablePacketizer)
+		DSPVLIWBundler::getBundler()->PerformBundle(MCI,&Binary);
 	//std::cout << "binary£¡£¡" << std::hex << Binary << std::endl;
 	if ((Opcode != DSP::NOP) && (Opcode != DSP::SHL)&&(Opcode!=DSP::Jmp) && !Binary)
 		llvm_unreachable("unimplemented opcode in EncodeInstruction()");
@@ -110,13 +116,23 @@ SmallVectorImpl<MCFixup> &Fixups,
 const MCSubtargetInfo &STI) const {
 	const MCOperand &MO = MI.getOperand(OpNo);
 
+	//std::cout << "brtarget16 instr opcode:" << MI.getOpcode() << std::endl;
+
 	// If the destination is an immediate, we have nothing to do.
 	if (MO.isImm()) return MO.getImm();
 	assert(MO.isExpr() && "getBranchTargetOpValue expects only expressions");
 
 	const MCExpr *Expr = MO.getExpr();
-	Fixups.push_back(MCFixup::Create(0, Expr,
-		MCFixupKind(DSP::fixup_DSP_PC26)));
+	if (MI.getOpcode() == DSP::Loop) {
+		//std::cout << "Loop use fixup_DSP_PC16" << std::endl;
+		Fixups.push_back(MCFixup::Create(0, Expr,
+			MCFixupKind(DSP::fixup_DSP_PC16)));
+	}
+	else {
+		//JC and JNC
+		Fixups.push_back(MCFixup::Create(0, Expr,
+			MCFixupKind(DSP::fixup_DSP_PC26)));
+	}
 
 	return 0;
 }

@@ -53,6 +53,9 @@ using namespace llvm;
 
 #define DEBUG_TYPE "packets"
 
+cl::opt<bool> DisablePacketizer("nopack",
+	cl::Hidden, cl::init(false), cl::desc("Disable Packetizer for DSP target"));
+
 static cl::opt<bool> PacketizeVolatiles("dsp-packetize-volatiles",
 	cl::ZeroOrMore, cl::Hidden, cl::init(true),
 	cl::desc("Allow non-solo packetization of volatile memory references"));
@@ -255,8 +258,8 @@ namespace {
 				}
 
 				if ((SUI->getInstr()->getOpcode() == DSP::RetLR) || (SUJ->getInstr()->getOpcode() == DSP::RetLR) ||
-					(SUI->getInstr()->getOpcode() == DSP::Jmp) || (SUJ->getInstr()->getOpcode() == DSP::Jmp) ||
 					(SUI->getInstr()->getOpcode() == DSP::Ret) || (SUJ->getInstr()->getOpcode() == DSP::Ret) ||
+					(SUI->getInstr()->getOpcode() == DSP::Jmp) || (SUJ->getInstr()->getOpcode() == DSP::Jmp) ||
 					(SUI->getInstr()->getOpcode() == DSP::JC) || (SUJ->getInstr()->getOpcode() == DSP::JC)
 					){
 					FoundSequentialDependence = true;
@@ -312,11 +315,11 @@ namespace {
 					FoundSequentialDependence = true;
 					break;
 				}
-				else if (DepType == SDep::Data) {
+				else if (DepType != SDep::Anti) {
 					FoundSequentialDependence = true;
 					break;
 				}
-				else if (DepType == SDep::Anti){
+				/*else if (DepType == SDep::Anti){
 					unsigned DepReg = SUJ->Succs[i].getReg();
 					if (I->definesRegister(DepReg) ||
 						J->definesRegister(DepReg)) {
@@ -324,7 +327,7 @@ namespace {
 						break;
 
 					}
-				}
+				}*/
 			}
 			if (FoundSequentialDependence) {
 				Dependence = true;
@@ -540,13 +543,9 @@ namespace {
 				CurrentPacketMIs.push_back(nvjMI);
 			}
 			else {
-				/*MachineBasicBlock::iterator MII = MI;
+				MachineBasicBlock::iterator MII = MI;
 				++MII;
-				if (MII->getOpcode() == DSP::Ret || MII->getOpcode() == DSP::RetLR||MII->getOpcode()==DSP::NOP){
-					endPacket(MBB, MI);
-				}
-				else 
-					judgeSlots(MBB, MI);*/
+
 				ResourceTracker->reserveResources(MI);
 				CurrentPacketMIs.push_back(MI);
 			}

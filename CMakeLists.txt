@@ -38,6 +38,8 @@ add_llvm_target(DSPCodeGen
 	DSPDelaySlotFiller.cpp
 	DSPDelUselessJMP.cpp
 	DSPMachineScheduler.cpp
+	DSPHardwareLoops.cpp
+	DSPFixupHwLoops.cpp
   )
 
 

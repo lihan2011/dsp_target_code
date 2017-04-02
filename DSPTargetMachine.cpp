@@ -16,14 +16,20 @@
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/CommandLine.h"
+#include <stdio.h>
+
 using namespace llvm;
+
 #define DEBUG_TYPE "dsp"
+
 extern "C" void LLVMInitializeDSPTarget() {
 	//- Little endian Target Machine
 	RegisterTargetMachine<DSPelTargetMachine> X(TheDSPelTarget);
 }
 
 extern cl::opt<bool> EnableSwPipeline;
+extern cl::opt<bool> DisableHardwareLoops;
+extern cl::opt<bool> DisablePacketizer;
 
 // DataLayout --> Big-endian, 32-bit pointer/ABI/alignment
 // The stack is always 8 byte aligned
@@ -94,11 +100,17 @@ bool DSPPassConfig::addPreRegAlloc() {
 		// $gp is a caller-saved register.
 		addPass(createDSPEmitGPRestorePass(getDSPTargetMachine()));
 	}*/
-	addPass(createDSPHandlerCCPass());
+  addPass(createDSPHandlerCCPass());
+  
+	if (getOptLevel() != CodeGenOpt::None)
+		if (!DisableHardwareLoops)
+			addPass(createDSPHardwareLoops());
+
 	if (EnableSwPipeline)
 	{
 		addPass(createLoopPipelinePass());
 	}
+
 	return false;
 }
 
@@ -113,8 +125,13 @@ bool DSPPassConfig::addPreEmitPass() {
 	addPass(createDSPDelJmpPass(TM));
 
 	addPass(createDSPDelaySlotFillerPass(TM));
-	addPass(createDSPPacketizer());
+	//fixup hwloop
+	if(!DisablePacketizer)
+		addPass(createDSPPacketizer());
 	addPass(createDSPVLIWBundlerDrive(TM));
+	if (!DisableHardwareLoops)
+		addPass(createDSPFixupHwLoops());
+
 	return true;
 }
 

@@ -45,6 +45,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "swpipeline"
 // Helper function (copied from LoopVectorize.cpp)
+
+cl::opt<bool> EnableSwPipeline("sw-pipeline", cl::init(true), cl::Hidden, cl::desc("software pipeline opt"));
 static void addInnerLoop(Loop &L, SmallVectorImpl<Loop *> &V) {
 	if (L.empty())
 		return V.push_back(&L);
@@ -56,8 +58,8 @@ namespace llvm {
 	void initializeDSPSWLoopsPass(PassRegistry&);
 }
 
-cl::opt<bool> EnableSwPipeline("sw-pipeline", cl::init(false), cl::NotHidden,
-	cl::desc("start software pipeline"));
+//cl::opt<bool> EnableSwPipeline("sw-pipeline", cl::init(false), cl::NotHidden,
+//	cl::desc("start software pipeline"));
 
 namespace {
 	class NodeSet;

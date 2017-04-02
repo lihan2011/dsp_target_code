@@ -92,6 +92,10 @@ static void AnalyzeCondBr(const MachineInstr *Inst, unsigned Opc,
 	int NumOp = Inst->getNumExplicitOperands();
 	// for both int and fp branches, the last explicit operand is the
 	// MBB.
+
+	for (int i = 0; i <= NumOp - 1; i++)
+		//std::cout << " the type: " << Inst->getOperand(i).getType() << std::endl;
+
 	BB = Inst->getOperand(NumOp - 1).getMBB();
 	Cond.push_back(MachineOperand::CreateImm(Opc));
 
@@ -142,6 +146,7 @@ const SmallVectorImpl<MachineOperand> &Cond) const {
 /// If AllowModify is true, then this routine is allowed to modify the basic
 /// block (e.g. delete instructions after the unconditional branch).
 ///
+
 bool DSPInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB, MachineBasicBlock *&FBB,
 	SmallVectorImpl<MachineOperand> &Cond,
 	bool AllowModify) const {
@@ -171,7 +176,7 @@ bool DSPInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB
 
 		// Not an analyzable branch (must be an indirect jump).
 		if (isUnpredicatedTerminator(SecondLastInst) && !SecondLastOpc)
-			return false;
+			return true;
 	}
 
 	// If there is only one terminator instruction, process it.
@@ -298,7 +303,8 @@ unsigned DSPInstrInfo::InsertBranch(MachineBasicBlock &MBB, MachineBasicBlock *T
 	else // Conditional branch.
 		BuildCondBr(MBB, TBB, DL, Cond);
 	return 1;
-	}
+}
+
 bool DSPInstrInfo::isConstExtended(MachineInstr *MI) const {
 
 	const uint64_t F = MI->getDesc().TSFlags;
@@ -383,6 +389,105 @@ bool DSPInstrInfo::getIncrementValue(const MachineInstr *MI,
 		return getBaseAndOffset(MI, Value, AccessSize);
 	}
 	if (MI->getOpcode() == DSP::ADDiu) {
+		Value = MI->getOperand(2).getImm();
+		return true;
+	}
+}
+
+/// \brief For a comparison instruction, return the source registers in
+/// \p SrcReg and \p SrcReg2 if having two register operands, and the value it
+/// compares against in CmpValue. Return true if the comparison instruction
+/// can be analyzed.
+bool DSPInstrInfo::analyzeCompare(const MachineInstr *MI,
+	unsigned &SrcReg, unsigned &SrcReg2,
+	int &Mask, int &Value) const {
+	unsigned Opc = MI->getOpcode();
+
+	// Set mask and the first source register.
+	switch (Opc) {
+
+	case DSP::EQI:
+	case DSP::NEQI:
+	case DSP::GEI:
+	case DSP::GTI:
+	case DSP::LEI:
+	case DSP::LTI:
+		SrcReg = MI->getOperand(1).getReg();
+		//I don't know what this mask mean, maybe the opcode mask ??
+		Mask = 0x1C00001F;
+		break;
+	case DSP::EQ:
+	case DSP::NEQ:
+	case DSP::GE:
+	case DSP::GEU:
+	case DSP::GT:
+	case DSP::GTU:
+	case DSP::LE:
+	case DSP::LEU:
+	case DSP::LT:
+	case DSP::LTU:
+		SrcReg = MI->getOperand(1).getReg();
+		//I don't know what this mask mean, maybe the opcode mask ??
+		Mask = 0x1C0000FF;
+		break;
+	case DSP::veq_10:
+	case DSP::veq_20:
+	case DSP::veq_40:
+	case DSP::vgt_10:
+	case DSP::vgt_20:
+	case DSP::vgt_40:
+	case DSP::vlt_10:
+	case DSP::vlt_20:
+	case DSP::vlt_40:
+	case DSP::vge_10:
+	case DSP::vge_20:
+	case DSP::vge_40:
+	case DSP::vle_10:
+	case DSP::vle_20:
+	case DSP::vle_40:
+		SrcReg = MI->getOperand(1).getReg();
+		//I don't know what this mask mean, maybe the opcode mask ??
+		Mask = 0x1C0000FF;
+		break;
+	}
+
+	// Set the value/second source register.
+	switch (Opc) {
+	case DSP::EQ:
+	case DSP::NEQ:
+	case DSP::GE:
+	case DSP::GEU:
+	case DSP::GT:
+	case DSP::GTU:
+	case DSP::LE:
+	case DSP::LEU:
+	case DSP::LT:
+	case DSP::LTU:
+	case DSP::veq_10:
+	case DSP::veq_20:
+	case DSP::veq_40:
+	case DSP::vgt_10:
+	case DSP::vgt_20:
+	case DSP::vgt_40:
+	case DSP::vlt_10:
+	case DSP::vlt_20:
+	case DSP::vlt_40:
+	case DSP::vge_10:
+	case DSP::vge_20:
+	case DSP::vge_40:
+	case DSP::vle_10:
+	case DSP::vle_20:
+	case DSP::vle_40:
+		SrcReg2 = MI->getOperand(2).getReg();
+		return true;
+
+	case DSP::EQI:
+	case DSP::NEQI:
+	case DSP::GEI:
+	case DSP::GTI:
+	case DSP::LEI:
+	case DSP::LTI:
+		SrcReg2 = 0;
 		Value = MI->getOperand(2).getImm();
 		return true;
 	}
