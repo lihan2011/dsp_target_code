@@ -322,7 +322,63 @@ const ScheduleDAG *DAG) const {
 	const InstrItineraryData *II = TM->getInstrItineraryData();
 	return TM->getSubtarget<DSPGenSubtargetInfo>().createDFAPacketizer(II);
 }
-bool DSPInstrInfo::getBaseAndOffset(const MachineInstr *MI, int &Value, unsigned int offset) const {
+bool DSPInstrInfo::getBaseAndOffsetPosition(const MachineInstr *MI,
+	unsigned &BasePos,
+	unsigned &OffsetPos) const{
+	if (MI->mayStore())
+	{
+		BasePos = 0;
+		OffsetPos = 1;
+	}
+	else if (MI->mayLoad()){
+		BasePos = 1;
+		OffsetPos = 2;
+	}
+	else return false;
+
+	if (!MI->getOperand(BasePos).isReg() || !MI->getOperand(OffsetPos).isImm())
+	{
+		return false;
+	}
+	return true;
+
+}
+bool DSPInstrInfo::isMemOp(const MachineInstr* MI) const{
+	switch (MI->getOpcode())
+	{
+	default:return false;
+	case DSP::LD:
+	case DSP::ST:
+		return true;
+	}
+	return false;
+}
+unsigned DSPInstrInfo::getMemAccessSize(const MachineInstr* MI) const {
+	//32bits word return 4  refer to hexagon
+	//now we only use scalar instruction
+	if (MI->mayLoad() || MI->mayStore())
+		return 4;
+
+	return 0;
+}
+
+// Returns the base register in a memory access (load/store). The offset is
+// returned in Offset and the access size is returned in AccessSize.
+bool DSPInstrInfo::getBaseAndOffset(const MachineInstr *MI, int &Value, unsigned& AccessSize) const {
+	if (!isMemOp(MI))
+		return 0;
+	assert(getMemAccessSize(MI) && "without accessSize");
+	AccessSize = getMemAccessSize(MI);
+
+	unsigned basePos = 0, offsetPos = 0;
+	if (!getBaseAndOffsetPosition(MI, basePos, offsetPos))
+		return 0;
+
+	if (isPostIncrement(MI))
+	{
+		Value = 0;
+	}
+	else Value = MI->getOperand(offsetPos).getImm();
 	return false;
 }
 /// If the instruction is an increment of a constant value, return the amount.
@@ -437,4 +493,16 @@ bool DSPInstrInfo::analyzeCompare(const MachineInstr *MI,
 	}
 
 	return false;
+}
+
+//Get the base register and byte offset of a load/store instr
+bool DSPInstrInfo::getLdStBaseRegImmOfs(MachineInstr *LdSt,
+	unsigned &BaseReg, unsigned &Offset,
+	const TargetRegisterInfo *TRI) const {
+	unsigned AccessSize = 0;
+	int OffsetVal = 0;
+	BaseReg = getBaseAndOffset(LdSt, OffsetVal, AccessSize);
+	Offset = OffsetVal;
+	
+	return BaseReg != 0;
 }

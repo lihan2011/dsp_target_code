@@ -94,6 +94,10 @@ bool DSPFixupHwLoops::runOnMachineFunction(MachineFunction &MF) {
 				MF.print(dbgs()); });
 
 	bool Changed = fixupLoopInstrs(MF);
+
+	if (DSPDEBUG)
+		std::cout << "<**-- Totally complete "<< NumHWLoopsFixup 
+		<<" HardwwareLoop fixups **>" << std::endl;
 	
 	if (DSPDEBUG && Changed)
 		DEBUG({ dbgs() << "\n** After HWLoops  Fixup ** \n";   
@@ -135,20 +139,21 @@ bool DSPFixupHwLoops::fixupLoopInstrs(MachineFunction &MF) {
 					"Expect a basic block as loop operand");
 				MachineBasicBlock *Latch = MII->getOperand(1).getMBB();
 				MachineBasicBlock *Preheader = MII->getParent();
-				MachineBasicBlock *NewLatch;
+				MachineBasicBlock *NewPreLatch;
 				if (DSPDEBUG) {
 					std::cout << "Got Loop instruction" << std::endl;
 					std::cout << "Latch:" << Latch->getFullName() << std::endl;
 					std::cout << "Preheader:" << Preheader->getFullName() << std::endl;
 				}
-				NewLatch = splitLatchBlock(Latch, Preheader);
-				assert(NewLatch &&
+				NewPreLatch = splitLatchBlock(Latch, Preheader);
+				assert(NewPreLatch &&
 					"Latch block split failed");
 
 				Changed = true;
 				NumFixup++;
+				NumHWLoopsFixup++;
 				if (DSPDEBUG)
-					std::cout << "<**Complete one HardwwareLoop fixup**>"
+					std::cout << "<**Complete this HardwwareLoop fixup**>"
 					<< std::endl;
 			}
 				++MII;
@@ -161,7 +166,8 @@ bool DSPFixupHwLoops::fixupLoopInstrs(MachineFunction &MF) {
 
 /// ReplaceUsesOfBlockWith - Given a machine basic block that branched to
 /// 'Old', change the code and CFG so that it branches to 'New' instead.
-/// Skip delay slot nop.
+/// Skip delay slot nop behind branch instruction which is located at 
+/// the bottom of Machine Basic Block.
 static void ReplaceUsesOfBlockWith(MachineBasicBlock *Old, MachineBasicBlock *New,
 	MachineBasicBlock *Use) {
 	assert(Old != New && "Cannot replace self with self!");
@@ -185,7 +191,7 @@ static void ReplaceUsesOfBlockWith(MachineBasicBlock *Old, MachineBasicBlock *Ne
 	Use->replaceSuccessor(Old, New);
 }
 
-/// \brief Create a preheader for a given loop.
+/// \brief Create a new prelatch block for a given loop if necessary.
 /// It is not valid to replace the loop header with this method.
 MachineBasicBlock *DSPFixupHwLoops::splitLatchBlock(
 	MachineBasicBlock *Latch, MachineBasicBlock *Preheader) {
@@ -318,7 +324,7 @@ MachineBasicBlock *DSPFixupHwLoops::splitLatchBlock(
 			assert(!NotAnalyzed && 
 				"Predecessor of latch Should be analyzable!");
 			////Fall through scenarios:
-			////1) No branck fall through: TB == FB == nullptr
+			////1) No branch fall through: TB == FB == nullptr
 			////2) Condition branch and fall through: TB != Latch, FB = nullptr
 			//if (TB != Latch && (!FB))
 			//	TII->InsertBranch(*PB, PreLatch, nullptr, EmptyCond, DL);

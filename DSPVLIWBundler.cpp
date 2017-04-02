@@ -213,10 +213,10 @@ void DSPVLIWBundler::PerformBundle(DSPMCInst *MI,uint32_t* Binary){
 
 		uint32_t slots = MI->getPos();
 		//std::cout << "MI op" << MI->getOpcode() << std::endl;
-		std::cout << "slot!!" << std::hex << slots <<std::endl;
-		std::cout << "before binary" << std::hex << *Binary<< std::endl;
+		//std::cout << "slot!!" << std::hex << slots <<std::endl;
+		//std::cout << "before binary" << std::hex << *Binary<< std::endl;
 		(*Binary) = (*Binary)&Flag&slots;
-		std::cout << "after binary" << std::hex << *Binary<< std::endl;
+		//::cout << "after binary" << std::hex << *Binary<< std::endl;
 	}	
 }
 
