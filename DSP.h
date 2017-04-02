@@ -50,7 +50,7 @@ FunctionPass *createDSPPacketizer();
 FunctionPass *createDSPDelaySlotFillerPass(DSPTargetMachine &TM);
 FunctionPass *createDSPDelJmpPass(DSPTargetMachine &TM);
 FunctionPass *createDSPFixupHwLoops();
-
+FunctionPass *createDSPHandlerCCPass();
 
 } // end namespace llvm;
 #endif

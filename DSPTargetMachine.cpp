@@ -100,13 +100,17 @@ bool DSPPassConfig::addPreRegAlloc() {
 		// $gp is a caller-saved register.
 		addPass(createDSPEmitGPRestorePass(getDSPTargetMachine()));
 	}*/
-	//if (EnableSwPipeline)
-	//{
-	//	addPass(createLoopPipelinePass());
-	//}
+  addPass(createDSPHandlerCCPass());
+  
 	if (getOptLevel() != CodeGenOpt::None)
 		if (!DisableHardwareLoops)
 			addPass(createDSPHardwareLoops());
+
+	if (EnableSwPipeline)
+	{
+		addPass(createLoopPipelinePass());
+	}
+
 	return false;
 }
 
